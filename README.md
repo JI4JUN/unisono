@@ -4,7 +4,9 @@
 
 A declarative, multi-agent LLM configuration compiler for open-source coding agents (`pi`, `omp`, `opencode`, `hermes`, `openclaw`).
 
-Compile a single canonical score (`~/.config/unisono.yaml`) and safely deep-merge model catalogs into your agents' native configurations with zero runtime proxy latency, accurate context window budgeting, and multi-workspace concurrency.
+Compile a single canonical Score (`~/.config/unisono/score.yaml`) into each Agent's native model Catalog with zero runtime proxy latency, per-Agent Overrides, and atomic backups.
 
 ## Documentation
 - Architecture & PRD: [unisono-handoff.md](./unisono-handoff.md)
+- Domain Glossary: [GLOSSARY.md](./GLOSSARY.md)
+- Architecture Decisions: [docs/adr/0001-takeover-instead-of-merge.md](./docs/adr/0001-takeover-instead-of-merge.md)
