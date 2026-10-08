@@ -83,11 +83,17 @@ declare module "bun:test" {
     toBeLessThan(expected: number): void;
     toBeDefined(): void;
     toMatch(pattern: RegExp | string): void;
+    /** A subset comparison: the received value must contain these entries. */
+    toMatchObject(expected: Record<string, unknown>): void;
+    /** The received value must carry the named property. */
+    toHaveProperty(name: string): void;
     toHaveLength(length: number): void;
     not: {
       toContain(expected: string): void;
       toBe(expected: unknown): void;
       toThrow(): void;
+      toMatchObject(expected: Record<string, unknown>): void;
+      toHaveProperty(name: string): void;
     };
     toThrow(): void;
   };

@@ -11,6 +11,7 @@
  */
 
 import { agentBaseDir, agentConfigPath, AGENT_IDS, configBase, scorePath, type AgentId } from "./paths";
+import { existsSync } from "node:fs";
 import { countCatalog, inspectAgent, readCatalog, type AgentReport } from "./agent";
 import { loadScore, type Score } from "./score";
 import { compileCatalog } from "./compiler";
@@ -29,6 +30,7 @@ import {
 } from "./backup";
 import { diffCatalog, doomedProviders, type CatalogDiff } from "./merger";
 import { formatDangling, ompDanglingReferences, piDanglingReferences } from "./dangling";
+import { generateDraft } from "./importer";
 import { errorLine, line, writeErr, writeOut } from "./output";
 
 const USAGE = `unis — one Score, two Agents in unison.
@@ -504,6 +506,71 @@ async function commandList(): Promise<number> {
 }
 
 /**
+ * `unis import <agent>` — a Score draft from an Agent's existing Catalog.
+ *
+ * The draft is written to the Score path and to nothing else: an import never
+ * writes either Agent's config, so the takeover stays a confirmed step. A
+ * Score that already exists is never merged into or truncated, because it is
+ * the Source of Truth the user has been maintaining and an import is a
+ * convenience, not a migration the user did not ask for (criterion 7).
+ *
+ * This is also the documented way out of the first-takeover gate: declaring
+ * the Providers a refusal lists is what makes the next `unis sync` proceed
+ * without `--yes`.
+ */
+async function commandImport(args: string[]): Promise<number> {
+  const agent = args[0];
+  if (agent === undefined || !AGENT_IDS.includes(agent as AgentId)) {
+    // `unis import` with no agent is the sync/rollback pattern: the usage line
+    // names the accepted values, rather than a per-command help that would
+    // duplicate the USAGE block a second time.
+    errorLine(`usage: unis import <agent>   (agent is ${AGENT_IDS.join(" or ")})`);
+    return 1;
+  }
+  const agentId = agent as AgentId;
+
+  const path = scorePath();
+  if (existsSync(path)) {
+    errorLine(`${path} already exists`);
+    writeErr(`an import writes a draft, and would replace the Score you already maintain`);
+    writeErr(`move it aside first if you want the draft instead`);
+    return 1;
+  }
+
+  const read = await readCatalog(agentId);
+  if (!read.ok) {
+    if (read.reason === "not installed") {
+      errorLine(`${agentId} is not installed at ${read.path}`);
+      return 1;
+    }
+    errorLine(`cannot read ${read.path}: ${read.reason}`);
+    return 1;
+  }
+
+  const result = generateDraft(agentId, read.catalog);
+  if (!result.ok) {
+    for (const failure of result.failures) {
+      errorLine(`cannot import provider '${failure.provider}': ${failure.reason}`);
+    }
+    return 1;
+  }
+
+  // 0600, per spec §5.5: the draft references credentials by variable name, and
+  // the directory it lands in may hold ones already expanded.
+  const written = writeFile(path, result.draft, null);
+  if (!written.wrote) {
+    errorLine(`cannot write ${path}`);
+    return 1;
+  }
+
+  line("ok", "Score", path, `drafted from ${agentId.toUpperCase()} (${result.providers} providers, ${result.models} models)`);
+  const other = AGENT_IDS.find((id) => id !== agentId);
+  if (other !== undefined) writeErr(`⚠ [Score] drafted from ${agentId.toUpperCase()} only — ${other.toUpperCase()}'s Catalog was not imported`);
+  writeErr(`⚠ [Score] references credentials by variable name; run "unis validate" to see which are unset`);
+  return 0;
+}
+
+/**
  * `unis rollback` — restore the state a sync replaced.
  *
  * No argument restores the newest snapshot, `--list` enumerates the retained
@@ -595,6 +662,8 @@ export async function main(argv: string[]): Promise<number> {
       return await commandDiff();
     case "validate":
       return await commandValidate();
+    case "import":
+      return await commandImport(argv.slice(1));
     case "rollback":
       return await commandRollback(argv.slice(1));
     default:
