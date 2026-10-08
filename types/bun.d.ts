@@ -81,6 +81,9 @@ declare module "bun:test" {
     toEqual(expected: unknown): void;
     toContain(expected: string): void;
     toBeLessThan(expected: number): void;
+    toBeDefined(): void;
+    toMatch(pattern: RegExp | string): void;
+    toHaveLength(length: number): void;
     not: { toContain(expected: string): void; toBe(expected: unknown): void };
   };
 }
@@ -98,7 +101,7 @@ declare module "node:fs" {
   export function readdirSync(path: string): string[];
   export function symlinkSync(target: string, path: string): void;
   export function lstatSync(path: string): { isSymbolicLink(): boolean };
-  export function statSync(path: string): { mode: number; mtimeMs: number };
+  export function statSync(path: string): { mode: number; size: number; mtimeMs: number };
 }
 
 declare module "node:path" {

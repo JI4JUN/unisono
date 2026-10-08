@@ -10,12 +10,22 @@
  * missing variable / write failure, 2 unconfirmed first takeover.
  */
 
-import { AGENT_IDS, scorePath, type AgentId } from "./paths";
+import { agentConfigPath, AGENT_IDS, configBase, scorePath, type AgentId } from "./paths";
 import { countCatalog, inspectAgent, readCatalog, type AgentReport } from "./agent";
 import { loadScore, type Score } from "./score";
 import { compileCatalog } from "./compiler";
 import { replaceCatalogNode } from "./sync";
 import { atomicWrite, type WriteResult } from "./writer";
+import {
+  listSnapshots,
+  readManifest,
+  restoreSnapshot,
+  rotateSnapshots,
+  RETAINED_SNAPSHOTS,
+  snapshotDir,
+  takeSnapshot,
+  type SnapshotEntry,
+} from "./backup";
 import { diffCatalog, doomedProviders, type CatalogDiff } from "./merger";
 import { errorLine, line, writeErr, writeOut } from "./output";
 
@@ -340,11 +350,33 @@ async function commandSync(dryRun: boolean, yes: boolean): Promise<number> {
   // Phase two writes. omp's write path is the one that exists: pi speaks JSON
   // with escaping the YAML splice does not do, so a drifting pi is reported in
   // phase one and never written until its own takeover ticket lands.
-  for (const compare of writable) {
-    if (dryRun || compare.agent !== "omp") continue;
+  const targets = writable.filter((compare) => !dryRun && compare.agent === "omp" && compare.write !== undefined);
+
+  // The snapshot is taken before the first write, so the files it holds are the
+  // ones a rollback must put back — never the ones this sync is replacing. An
+  // `Unchanged` sync has no targets and takes no snapshot at all.
+  if (targets.length > 0) {
+    let stamp: string;
+    try {
+      stamp = takeSnapshot(
+        configBase(),
+        Object.fromEntries(targets.map((compare) => [compare.agent, compare.path])),
+      );
+    } catch (error) {
+      // Fail closed: a takeover with no way back is the thing this whole path
+      // exists to prevent, so a snapshot that cannot be taken stops the sync
+      // rather than writing unrecoverably. The raw throw would surface as a
+      // stack trace, which is not a report a user can act on.
+      errorLine(`cannot snapshot before write: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    }
+    line("ok", "Snapshot", snapshotDir(configBase(), stamp), "taken before write");
+    rotateSnapshots(configBase());
+  }
+
+  for (const compare of targets) {
     const write = compare.write;
     if (write === undefined) continue;
-
     const written = writeFile(compare.path, write.content, write.sha256);
     if (!written.wrote) {
       if (written.reason === "changed-underneath") {
@@ -438,6 +470,72 @@ async function commandList(): Promise<number> {
   return 0;
 }
 
+/**
+ * `unis rollback` — restore the state a sync replaced.
+ *
+ * No argument restores the newest snapshot, `--list` enumerates the retained
+ * timestamps, and a timestamp restores that specific one. All three forms read
+ * only: nothing is snapshotted, so a rollback cannot consume an older snapshot.
+ *
+ * A restore puts back both the bytes and the mode of every file the snapshot
+ * holds, and deletes the files that did not exist before that sync — a rollback
+ * that leaves a newly created file behind has not restored the prior state.
+ */
+async function commandRollback(args: string[]): Promise<number> {
+  const base = configBase();
+
+  if (args.length > 1 || (args.length === 1 && args[0]?.startsWith("-") && args[0] !== "--list")) {
+    errorLine(`usage: unis rollback | unis rollback --list | unis rollback <timestamp>`);
+    return 1;
+  }
+
+  const stamps = listSnapshots(base);
+
+  // Listing an empty set is a legitimate answer, so `--list` runs first and
+  // reports nothing with exit 0; the error belongs to the restore forms, which
+  // have a snapshot to find and cannot find one.
+  if (args[0] === "--list") {
+    writeOut(`Snapshots (newest first, ${RETAINED_SNAPSHOTS} retained):`);
+    for (const stamp of stamps) writeOut(`  ${stamp}`);
+    return 0;
+  }
+
+  if (stamps.length === 0) {
+    writeErr("⚠ no snapshots retained");
+    return 1;
+  }
+
+  const stamp = args[0] ?? stamps[0] ?? "";
+  if (args[0] !== undefined && !stamps.includes(args[0])) {
+    errorLine(`no retained snapshot for ${args[0]}`);
+    for (const retained of stamps) writeErr(`  ${retained}`);
+    return 1;
+  }
+
+  try {
+    for (const id of restoreSnapshot(base, stamp)) {
+      const entry = manifestEntry(base, stamp, id);
+      if (entry === undefined) continue;
+      if (entry.backed === undefined) {
+        line("ok", id.toUpperCase(), entry.from, "Removed (did not exist before the sync)");
+        continue;
+      }
+      line("ok", id.toUpperCase(), entry.from, "Restored");
+    }
+  } catch (error) {
+    errorLine(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+  writeOut(`✨ Rolled back to ${stamp}`);
+  return 0;
+}
+
+/** One Agent's manifest entry, so a restore line can report what it did. */
+function manifestEntry(base: string, stamp: string, id: string): SnapshotEntry | undefined {
+  const manifest = readManifest(base, stamp);
+  return manifest?.entries[id];
+}
+
 export async function main(argv: string[]): Promise<number> {
   const command = argv[0];
   if (!command) exitWithUsage();
@@ -464,6 +562,8 @@ export async function main(argv: string[]): Promise<number> {
       return await commandDiff();
     case "validate":
       return await commandValidate();
+    case "rollback":
+      return await commandRollback(argv.slice(1));
     default:
       errorLine(`unknown command: ${command}`);
       exitWithUsage();

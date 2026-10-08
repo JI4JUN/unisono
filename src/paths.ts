@@ -27,7 +27,8 @@ export type AgentId = "omp" | "pi";
 
 export const AGENT_IDS: readonly AgentId[] = ["omp", "pi"];
 
-function configBase(): string {
+/** Where Unisono keeps its own state: the Score, and the backup area under it. */
+export function configBase(): string {
   const xdg = Bun.env.XDG_CONFIG_HOME?.trim();
   return xdg ? `${xdg}/unisono` : `${Bun.env.HOME}/.config/unisono`;
 }
