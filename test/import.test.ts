@@ -129,8 +129,18 @@ function readKey(node: unknown, key: string): unknown {
   return undefined;
 }
 
+/**
+ * A parsed map, narrowed rather than assumed; empty when it is not one.
+ *
+ * The test seam forbids importing `src/guards.ts`, so this is the same check it
+ * makes — an object that is not also a list — spelled locally. Parsed YAML and
+ * JSONC are outside-controlled data, and a list reaching this would be
+ * shape-asserted to a Record, so lists are excluded rather than trusted.
+ */
 function asMap(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function asList(value: unknown): unknown[] {

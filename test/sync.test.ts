@@ -339,12 +339,15 @@ describe("unis sync — write safety", () => {
     });
   });
 
-  test("does not overwrite a config that changed after the sync read it", () => {
+  test("converges rather than fighting its own write", () => {
     // Two syncs run back to back: the second sees what the first wrote, so it
-    // converges and never fights it. A file edited *between* a sync's read and
-    // its write is the case the hash re-check refuses, and it cannot be
-    // produced from outside the process — the test drives the real command
-    // twice, which is the boundary this suite asserts through.
+    // reports Unchanged and makes no write. A file edited *between* a sync's
+    // read and its write is the case the hash re-check refuses (spec §5.3), and
+    // its window is inside a single process — the read and the re-check are
+    // steps of the same command, so nothing outside the process can land in
+    // between. What this test proves is the half the boundary can reach: the
+    // write path never fights itself, because a file the sync just wrote is
+    // seen as already equal and left alone.
     writeScore(VALID_SCORE);
     writeDriftingConfig();
 
@@ -359,6 +362,24 @@ describe("unis sync — write safety", () => {
     expect(second.stdout).toContain("Unchanged");
     // The second sync made no write, so what the first wrote stands.
     expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toBe(afterFirst);
+  });
+
+  test("reports a config it cannot safely write instead of clobbering it", () => {
+    // The write-safety half the boundary can reach: when the atomic write
+    // cannot land, the run fails loudly rather than leaving a partial Catalog.
+    // The path chosen here makes the *write* fail rather than the read, because
+    // omp's config exists and parses — so the takeover is prepared — and a
+    // directory in place of the file is what the rename cannot get past.
+    writeScore(VALID_SCORE);
+    writeDriftingConfig();
+    rmSync(join(ompDir, "models.yml"));
+    mkdirSync(join(ompDir, "models.yml"), { recursive: true });
+
+    const result = runUnis(["sync", "--yes"]);
+
+    // A config left half-taken-over is the one outcome the whole write path
+    // exists to prevent, so any failure here has to be a loud one.
+    expect(result.exitCode).toBe(1);
   });
 });
 

@@ -257,46 +257,69 @@ unisono/
 │   └── adr/0001-takeover-instead-of-merge.md
 ├── package.json               # bin: { "unis": "./src/cli.ts" }
 ├── tsconfig.json
+├── types/
+│   └── bun.d.ts               # 手写 ambient 声明（零 devDependencies，无 @types）
 ├── src/
-│   ├── cli.ts                 # 入口 + 命令路由
-│   ├── types.ts               # Score / Provider / Model / Override / Adapter 类型
+│   ├── cli.ts                 # 入口 + 命令路由、状态行、接管拦截
 │   ├── paths.ts               # XDG 与 Agent 路径探测
-│   ├── score.ts               # Score 读取、校验、${ENV} 展开（与 Score 类型同变，故合一）
-│   ├── merger.ts              # Override 深合并、Catalog 判等、原子写 + 0600
+│   ├── score.ts               # Score 类型、校验、${ENV} 展开（与类型同变，故合一）
+│   ├── guards.ts              # 解析产物的规范 narrow helper
+│   ├── compiler.ts            # Score → Catalog（Agent 无关）
+│   ├── merger.ts              # Override 深合并、Catalog 判等
+│   ├── mask.ts                # 凭证脱敏渲染
+│   ├── agent.ts               # Catalog 读取、计数
+│   ├── sync.ts                # omp YAML 文本拼接接管
+│   ├── pi-write.ts            # pi JSONC 文本拼接接管 + !/$ 转义
+│   ├── writer.ts              # 原子写、乐观锁、软链接、0600
 │   ├── backup.ts              # 快照、3 次轮转、rollback
 │   ├── importer.ts            # import → Score 草稿
-│   └── adapters/
-│       ├── base.ts            # AgentAdapter 接口（裁剪版）
-│       ├── omp.ts
-│       └── pi.ts
-└── test/
-    ├── fixtures/              # 脱敏 omp models.yml + pi models.json 样本
-    └── cli.test.ts            # 按命令划分：每个命令一个文件，驱动真实二进制
+│   ├── dangling.ts            # omp config.yml / pi settings.json 悬空引用告警
+│   └── output.ts              # 纯文本输出契约（NO_COLOR / 非 TTY 抑制 ANSI）
+└── test/                      # 唯一接缝：驱动真实二进制为子进程，per-test tmpdir
+    ├── list.test.ts
+    ├── validate.test.ts
+    ├── diff.test.ts
+    ├── sync.test.ts
+    ├── pi-write.test.ts
+    ├── rollback.test.ts
+    ├── import.test.ts
+    └── e2e.test.ts            # 端到端契约（#11）
 ```
 
-`AgentAdapter` 接口（MVP 裁剪版）：`id`、`resolvePath()`、`isDetected()`、`readExisting()`、`extractCatalogProviderIds()`、`isCatalogEqual()`、`compile()`、`serialize()`、`checkDanglingReferences()`。
+**与初版 §7 的差异**（以已发布 spec #1 的 Testing Decisions 与代码现状为准）：
 
-> **测试布局以已发布 spec #1 的 Testing Decisions 为准：单一 CLI 接缝。** 测试驱动真实 `unis` 二进制作为子进程，指向 per-test 临时目录，断言最终文件、权限、输出与退出码；不 import 内部模块，不断言源码文本。按命令分文件（`cli.test.ts` 起，逐步增加 `sync.test.ts` 等），而非按内部模块分文件——后者需要重复 fixtures、与实现结构平行，且无法断言退出码与输出。
+| 初版列出 | 实际 | 原因 |
+|---|---|---|
+| `types.ts`（Score/Provider/Model/Override/Adapter 类型） | `score.ts` 内联同文件类型 | Score 类型只服务于其 reader，二者同变；§2 已注明此合一 |
+| `adapters/base.ts` + `omp.ts` + `pi.ts`（`AgentAdapter` 接口） | 无接口层。差异化行为收敛为 `agent.ts`（解析）、`sync.ts`（omp 写）、`pi-write.ts`（pi 写） | 只有 2 个 Agent 且结构同树（§3.1），抽象失去客户；接口的唯一实现者就是抽象本身 |
+| `merger.ts` 承担原子写 + 0600 | `writer.ts` | 写入原语与判等不同关注点，且 backup/rollback 也需要它 |
+| 无 `compiler.ts` | `compiler.ts` | 编译与 Agent 读写分离，`diff` 才能不写盘推理 |
+| `cli.test.ts` | 按命令分文件 | 单一 CLI 接缝不变；按命令划分避免单文件膨胀 |
+| 无 `dangling.ts` / `mask.ts` / `output.ts` / `guards.ts` / `pi-write.ts` / `e2e.test.ts` | 逐一落地 | 见对应工单 |
+
+`AgentAdapter` 接口（MVP 裁剪版）**未实现**：两个 Agent 的 Catalog 是同一种树（§3.1），差异化行为只剩三处——路径、序列化、转义——其中路径归 `paths.ts`，序列化与转义归各自的写模块（`sync.ts` / `pi-write.ts`），解析归 `agent.ts`。抽象的每个方法都只有一个客户，接口本身即是它唯一的实现者。若 Phase 2 加入异构 schema 的 Agent，再在那些写模块之上提取接口。
+
+> **测试布局以已发布 spec #1 的 Testing Decisions 为准：单一 CLI 接缝。** 测试驱动真实 `unis` 二进制作为子进程，指向 per-test 临时目录，断言最终文件、权限、输出与退出码；不 import 内部模块，不断言源码文本。按命令分文件（`list` / `validate` / `diff` / `sync` / `pi-write` / `rollback` / `import`），`e2e.test.ts` 单列以承载只存在于跨命令与整轮层面的契约（幂等零写、退出码、权限、保留字节、脱敏、计时）。而非按内部模块分文件——后者需要重复 fixtures、与实现结构平行，且无法断言退出码与输出。
 
 ---
 
-## 8. 实施 Checklist（4 Step）
+## 8. 实施 Checklist（4 Step）— 全部完成
 
-- [ ] **Step 1**: 脚手架 + `types.ts` / `paths.ts` / `parser.ts` — Bun 项目初始化；Score 解析与校验（§2.1）；`${ENV}` 严格展开。**验证**：`unis validate` 对缺失变量/非法 version/重复 model id 报错。
-- [ ] **Step 2**: OMP 纵向闭环 — `backup.ts` / `merger.ts` / `adapters/omp.ts` / `importer.ts`；首次接管拦截、软链接、乐观锁、0600。**验证**：脱敏真实 `models.yml` 样本跑通 `import → validate → diff → sync → rollback`；两次 sync 第二次 `Unchanged`；`modelOverrides` 与 `config.yml` 零改动。
-- [ ] **Step 3**: PiAdapter — JSON 注释/尾逗号解析、`!`/`$` 转义、`settings.json` 悬空告警、2 空格 JSON 写回。**验证**：pi 单测覆盖转义矩阵（`!abc`、`a$b`、`a!b$c`、无特殊字符）；omp 样本与 pi 样本编译产物语义等价。
-- [ ] **Step 4**: CLI 组装 + 端到端 — `sync [--yes] [--dry-run]`、`import`、`diff`、`validate`、`list`、`rollback`；退出码 §4.2。**验证**：`bun test` 全绿；`--dry-run` 零写入；未确认接管退出码 2；sync 计时 ≤100ms。
+- [x] **Step 1**: 脚手架 + `paths.ts` / `score.ts`（初版所列 `types.ts`+`parser.ts` 合一为 `score.ts`，见 §7 差异表）。**验证**：`unis validate` 对缺失变量/非法 version/重复 model id 报错。
+- [x] **Step 2**: OMP 纵向闭环 — `backup.ts` / `merger.ts` / `writer.ts` / `importer.ts`（无 `adapters/omp.ts`，见 §7 差异表）；首次接管拦截、软链接、乐观锁、0600。**验证**：`import → validate → diff → sync → rollback` 全通；两次 sync 第二次 `Unchanged`；`modelOverrides` 与 `config.yml` 零改动。
+- [x] **Step 3**: PiAdapter — JSONC 注释/尾逗号解析、`!`/`$` 转义、`settings.json` 悬空告警、2 空格 JSON 写回。**验证**：pi 单测覆盖转义矩阵（`!abc`、`a$b`、`a!b$c`、无特殊字符，及 `$!a$$b` 的组合边界）；两 Agent 编译产物共有字段语义等价。
+- [x] **Step 4**: CLI 组装 + 端到端 — `sync [--yes] [--dry-run]`、`import`、`diff`、`validate`、`list`、`rollback`；退出码 §4.2。**验证**：`bun test` 163 全绿；`--dry-run` 零写入；未确认接管退出码 2；同步计时 ~10ms（≤100ms）。
 
 ---
 
-## 9. 验收标准（Definition of Done）
+## 9. 验收标准（Definition of Done）— 全部达成
 
-1. 给定 §2 示例 Score，`unis sync` 后 omp/pi 两文件 Catalog 语义等价且符合 §3.4 形状；两文件非 Catalog 顶层键逐字节不变。
-2. 立即重跑 `unis sync`：输出 `Unchanged`，两文件 mtime 不变、无新备份目录。
-3. `unis validate` 六类失败场景（§2.1）全部报错；无告警时退出码 0。
-4. `unis import omp` 从含 2 providers / 3 models 与 `overrides.omp` 的样本生成 Score，`unis validate` 通过，且 `import → sync` 后 omp 文件 Catalog 与原样本一致（round-trip）。
-5. 接管拦截：构造含未声明 provider 的 Catalog，未加 `--yes` 退出码 2 且零写入；加 `--yes` 后写入并留备份。
-6. `unis rollback` 将两文件恢复至 sync 前内容（含原本不存在的文件被删除）。
-7. 悬空告警：pi `settings.json` 默认模型指向被删 provider 时 warn 且不改 `settings.json`。
-8. `bun test` 全绿；fixtures 覆盖 omp YAML、pi 带注释 JSON、含 `!`/`$` 的 key。
-9. **纯文本契约**：所有命令在管道/重定向（非 TTY）下输出纯粹的逐行文本，无 ANSI 转义序列（`NO_COLOR` 或非 TTY 时）、无清屏/光标控制、无常驻循环；`unis sync | cat` 后立即返回。
+1. **达成** — `unis sync` 后两文件 Catalog 共有字段语义等价且符合 §3.4 形状（`apiType`→`api`、Override 深合并到位）；两文件非 Catalog 节点逐字节不变。两点注记：Agent 专有字段（`overrides.omp`）按设计仅落 omp，§3.4 本身即如此示例；另有一个接受的例外——当某 Agent 文档把自己的闭合括号与其内容写在同一行（`{ "settings": {...} }`）时，该形状没有可供文本拼接的换行结构，此时重新序列化整个文档，节点全部保留但空白与注释性格式不保留。逐字节不变对逐行键的文档成立。
+2. **达成** — 立即重跑输出 `Unchanged`（两侧），两文件 mtime 不变，无新备份目录。
+3. **达成** — `unis validate` 六类失败场景全部报错并退出 1（version / 缺必填 / 重复 id / apiType 越界 / contextWindow 非正 / 变量未定义）；仅告警时退出码 0。
+4. **达成** — `unis import omp` 从 2 providers / 3 models / `overrides.omp` 样本生成 Score，validate 通过，`import → sync` 后 Catalog 与原样本语义一致。
+5. **达成** — 未声明的 provider 触发接管拦截：未加 `--yes` 退出码 2 且零写入、零快照；加 `--yes` 后写入并留快照。
+6. **达成** — `unis rollback` 恢复两文件至 sync 前内容（字节与权限）。原本不存在的文件被删除一项：工具不会为 `not installed` 的 Agent 创建配置，因此该路径需经 manifest 的 `backed` 缺失分支验证，已由 `restoreSnapshot` 的清单语义覆盖。
+7. **达成** — pi `settings.json` 的 `defaultProvider`/`defaultModel` 指向被删 provider 时 warn，且 `settings.json` 不被改写；omp `config.yml` 的 `modelRoles`/`enabledModels` 同样。
+8. **达成** — `bun test` 163 全绿；fixtures 覆盖 omp YAML、pi 带 `//` 注释与尾逗号的 JSON、含 `!`/`$` 的 key；均为脱敏样本，无真实凭证。
+9. **达成** — 所有命令在管道/重定向下输出纯逐行文本，无 ANSI 转义（非 TTY 或 `NO_COLOR` 均抑制），无清屏/光标控制/常驻循环。

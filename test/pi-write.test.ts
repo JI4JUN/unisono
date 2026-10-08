@@ -133,6 +133,20 @@ function piDocument(): unknown {
   return Bun.JSONC.parse(piConfigText());
 }
 
+/**
+ * A parsed map, narrowed rather than assumed; empty when it is not one.
+ *
+ * The test seam forbids importing `src/guards.ts`, so this is the same check it
+ * makes — an object that is not also a list — spelled locally. Parsed JSONC is
+ * outside-controlled data, and a list reaching this would be shape-asserted to
+ * a Record, so lists are excluded rather than trusted.
+ */
+function asMap(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 /** A pi config holding one unrelated provider, for a drifting start. */
 function writeDriftingConfig(): void {
   writeFileSync(piConfigPath(), JSON.stringify({ providers: { stale: { models: [] } } }, null, 2));
@@ -239,6 +253,44 @@ providers:
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Synced (1 providers, 1 models)");
     expect(JSON.stringify(piCatalog())).toBe(JSON.stringify(COMPILED_CATALOG));
+  });
+
+  test("keeps a user node when the whole config shares the closing brace's line", () => {
+    writeScore(VALID_SCORE);
+    // A config whose contents and its own brace are on one line is legal JSONC
+    // and pi reads it. There is no line to append before, so the splice has
+    // nothing to hold on to — and dropping the user's node to gain the Catalog
+    // is worse than re-emitting with the nodes kept.
+    writeFileSync(piConfigPath(), '{ "settings": { "theme": "dark", "defaultModel": "p/m" } }');
+
+    expect(runUnis(["sync", "--yes"]).exitCode).toBe(0);
+
+    const text = piConfigText();
+    expect(() => JSON.parse(text)).not.toThrow();
+    const document = readKey(piDocument(), "settings");
+    expect(JSON.stringify(document)).toBe(JSON.stringify({ theme: "dark", defaultModel: "p/m" }));
+    // The Catalog came through in full, so the re-emit added it rather than
+    // replacing what the user had.
+    expect(Object.keys(asMap(piCatalog()))).toContain("deepseek");
+  });
+
+  test("keeps a user node when the config's last key shares the closing brace's line", () => {
+    writeScore(VALID_SCORE);
+    // The shape is only reachable when the document keeps its brace beside the
+    // last key's own value rather than on a line of its own. Splicing the block
+    // out would take the brace with it, so the document is re-emitted — and the
+    // user's node has to survive that.
+    writeFileSync(
+      piConfigPath(),
+      ['{', '  "settings": {"theme":"dark"},', '  "providers": {} }'].join("\n"),
+    );
+
+    expect(runUnis(["sync", "--yes"]).exitCode).toBe(0);
+
+    const text = piConfigText();
+    expect(() => JSON.parse(text)).not.toThrow();
+    expect(asMap(Bun.JSONC.parse(text))["settings"]).toEqual({ theme: "dark" });
+    expect(Object.keys(asMap(piCatalog()))).toContain("deepseek");
   });
 
   test("preserves every non-Catalog top-level node of pi's config, byte for byte", () => {
