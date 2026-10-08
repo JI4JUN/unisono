@@ -54,13 +54,50 @@ function modelsOf(provider: Record<string, unknown> | undefined): number {
   return models.length;
 }
 
+/** Provider and model counts of a Catalog, for reports and comparisons alike. */
+export function countCatalog(catalog: Catalog): { providers: number; models: number } {
+  const providers = Object.keys(catalog);
+  return {
+    providers: providers.length,
+    models: providers.reduce((total, id) => total + modelsOf(catalog[id]), 0),
+  };
+}
+
+/**
+ * Reads an Agent's Catalog as parsed data, or reports why it could not be read.
+ *
+ * Every command that compares, writes, or restores a config parses it through
+ * this one function, so `diff` and `sync` agree on what is on disk. A config
+ * that cannot be parsed is reported as `failed` with its reason rather than
+ * thrown, so one broken Agent does not blind the other.
+ */
+export async function readCatalog(
+  agent: AgentId,
+): Promise<
+  { ok: true; path: string; catalog: Catalog } | { ok: false; path: string; reason: string }
+> {
+  const path = agentConfigPath(agent);
+  if (!isAgentInstalled(agent)) {
+    return { ok: false, path, reason: "not installed" };
+  }
+
+  let config: RawConfig;
+  try {
+    config = parseConfig(agent, await Bun.file(path).text());
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, path, reason };
+  }
+
+  return { ok: true, path, catalog: catalogOf(config) };
+}
+
 /**
  * Reads an Agent's config and counts what its Catalog holds.
  *
- * Whether the Catalog matches the Score is a later ticket's question (#3) and
- * is deliberately absent here: `unis list` currently reports presence and size
- * only. A config that cannot be parsed is reported as `failed` with its reason
- * rather than thrown, so one broken Agent does not blind the other.
+ * Whether the Catalog matches the Score is reported by `unis list` and
+ * `unis diff`, which compare through `readCatalog` against a compiled
+ * Catalog. State only; no Score is loaded here.
  */
 export async function inspectAgent(agent: AgentId): Promise<AgentReport> {
   const path = agentConfigPath(agent);
@@ -77,12 +114,12 @@ export async function inspectAgent(agent: AgentId): Promise<AgentReport> {
   }
 
   const catalog = catalogOf(config);
-  const providers = Object.keys(catalog);
+  const { providers, models } = countCatalog(catalog);
   return {
     agent,
     path,
     state: "installed",
-    providers: providers.length,
-    models: providers.reduce((total, id) => total + modelsOf(catalog[id]), 0),
+    providers,
+    models,
   };
 }

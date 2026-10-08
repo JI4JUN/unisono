@@ -77,6 +77,7 @@ declare module "node:fs" {
   export function existsSync(path: string): boolean;
   export function mkdirSync(path: string, options: { recursive?: boolean }): string | undefined;
   export function writeFileSync(path: string, data: string | Uint8Array): void;
+  export function readFileSync(path: string, encoding: "utf8"): string;
   export function mkdtempSync(prefix: string): string;
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
 }

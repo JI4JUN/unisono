@@ -54,7 +54,13 @@ beforeEach(() => {
   piDir = join(root, "pi", "agent");
   mkdirSync(ompDir, { recursive: true });
   mkdirSync(piDir, { recursive: true });
+  mkdirSync(join(root, "config", "unisono"), { recursive: true });
 });
+
+/** Writes an unparseable Score so `unis list` has nothing to compare against. */
+function writeNoScore(): void {
+  writeFileSync(join(root, "config", "unisono", "score.yaml"), "");
+}
 
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
@@ -89,6 +95,9 @@ describe("unis list", () => {
         providers: { deepseek: { models: [{ id: "a" }] } },
       }),
     );
+    // With no Score on disk there is nothing to compare against, so the
+    // report falls back to counting what each config holds.
+    writeNoScore();
 
     const { stdout, exitCode } = runUnis("list");
 
@@ -131,6 +140,8 @@ describe("unis list", () => {
     writeFileSync(join(custom, "models.yml"), "providers: { a: { models: [] } }\n");
     writeFileSync(join(custom, "models.yaml"), "providers: {}\n");
 
+    // No Score on disk: the report counts what each config holds.
+    writeNoScore();
     const { stdout, exitCode } = runUnis("list", { OMP_CODING_AGENT_DIR: custom });
 
     expect(exitCode).toBe(0);
@@ -142,6 +153,7 @@ describe("unis list", () => {
     const homeDir = join(root, "home");
     mkdirSync(join(homeDir, ".omp", "agent"), { recursive: true });
     writeFileSync(join(homeDir, ".omp", "agent", "models.yml"), "providers: {}\n");
+    writeNoScore();
 
     const { stdout, exitCode } = runUnis("list", {
       HOME: homeDir,
@@ -163,6 +175,7 @@ describe("unis list", () => {
       },
     }`,
     );
+    writeNoScore();
 
     const { stdout, exitCode } = runUnis("list");
 
