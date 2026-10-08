@@ -1,0 +1,15 @@
+{
+  "name": "unisono",
+  "version": "0.1.0",
+  "description": "Compile one declarative Score into the native model Catalog of omp and pi.",
+  "type": "module",
+  "bin": {
+    "unis": "./src/cli.ts"
+  },
+  "scripts": {
+    "unis": "bun src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "license": "MIT"
+}
