@@ -12,7 +12,8 @@
 
 import { AGENT_IDS, scorePath } from "./paths";
 import { inspectAgent, type AgentReport } from "./agent";
-import { errorLine, line, writeOut } from "./output";
+import { loadScore } from "./score";
+import { errorLine, line, writeErr, writeOut } from "./output";
 
 const USAGE = `unis — one Score, two Agents in unison.
 
@@ -48,6 +49,29 @@ function reportLine(report: AgentReport): void {
   line("ok", report.agent.toUpperCase(), report.path, `${report.providers} providers, ${report.models} models`);
 }
 
+/**
+ * `unis validate` — check the Score and write nothing.
+ *
+ * A Score with only warnings exits 0; any error exits 1. Environment
+ * expansion happens here, so a missing credential is caught before any
+ * sync could write a blank key.
+ */
+async function commandValidate(): Promise<number> {
+  const path = scorePath();
+  const result = await loadScore(path);
+  if (!result.ok) {
+    for (const error of result.errors) errorLine(`${path}: ${error}`);
+    return 1;
+  }
+
+  for (const warning of result.warnings) writeErr(`⚠ ${warning}`);
+
+  const providers = Object.values(result.score.providers);
+  const models = providers.reduce((total, provider) => total + provider.models.length, 0);
+  line("ok", "Score", path, `valid (${providers.length} providers, ${models} models)`);
+  return 0;
+}
+
 /** `unis list` — the Score in use, then per-Agent path, presence, and size. */
 async function commandList(): Promise<number> {
   const reports: AgentReport[] = [];
@@ -70,6 +94,8 @@ export async function main(argv: string[]): Promise<number> {
   switch (command) {
     case "list":
       return await commandList();
+    case "validate":
+      return await commandValidate();
     default:
       errorLine(`unknown command: ${command}`);
       exitWithUsage();
