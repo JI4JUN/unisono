@@ -10,11 +10,12 @@
  * missing variable / write failure, 2 unconfirmed first takeover.
  */
 
-import { agentConfigPath, AGENT_IDS, configBase, scorePath, type AgentId } from "./paths";
+import { agentBaseDir, agentConfigPath, AGENT_IDS, configBase, scorePath, type AgentId } from "./paths";
 import { countCatalog, inspectAgent, readCatalog, type AgentReport } from "./agent";
 import { loadScore, type Score } from "./score";
 import { compileCatalog } from "./compiler";
 import { replaceCatalogNode } from "./sync";
+import { escapePiCatalog, replacePiCatalogNode } from "./pi-write";
 import { atomicWrite, type WriteResult } from "./writer";
 import {
   listSnapshots,
@@ -27,6 +28,7 @@ import {
   type SnapshotEntry,
 } from "./backup";
 import { diffCatalog, doomedProviders, type CatalogDiff } from "./merger";
+import { formatDangling, ompDanglingReferences, piDanglingReferences } from "./dangling";
 import { errorLine, line, writeErr, writeOut } from "./output";
 
 const USAGE = `unis — one Score, two Agents in unison.
@@ -112,12 +114,27 @@ function countOnly(report: AgentReport): AgentCompare {
 }
 
 /**
+ * The dangling-reference warnings for both Agents, as printed lines.
+ *
+ * Both Agents' siblings are read against the compiled Catalog, because a
+ * takeover is what creates a dangling reference and a takeover targets both.
+ * Running the checks only for the Agent that changed would hide a default on
+ * the other side that the same write orphaned.
+ */
+function danglingWarnings(score: Score): string[] {
+  return [
+    ...ompDanglingReferences(agentBaseDir("omp"), score.providers).map(formatDangling),
+    ...piDanglingReferences(agentBaseDir("pi"), score.providers).map(formatDangling),
+  ];
+}
+
+/**
  * `unis validate` — check the Score and write nothing.
  *
  * A Score with only warnings exits 0; any error exits 1. Environment
  * expansion happens here, so a missing credential is caught before any
- * sync could write a blank key. Dangling-reference warnings arrive with
- * their own ticket; this command reports only Score problems.
+ * sync could write a blank key. The dangling-reference checks run here too,
+ * so an orphaning change is visible before a sync writes it.
  */
 async function commandValidate(): Promise<number> {
   const path = scorePath();
@@ -128,6 +145,7 @@ async function commandValidate(): Promise<number> {
   }
 
   for (const warning of result.warnings) writeErr(`⚠ ${warning}`);
+  for (const warning of danglingWarnings(result.score)) writeErr(`⚠ ${warning}`);
 
   const providers = Object.values(result.score.providers);
   const models = providers.reduce((total, provider) => total + provider.models.length, 0);
@@ -176,8 +194,14 @@ async function compareAgent(agent: AgentId, score: Score): Promise<AgentCompare>
   }
 
   const compiled = compileCatalog(score, agent);
-  const diffs = diffCatalog(compiled, read.catalog);
-  const doomed = doomedProviders(compiled, read.catalog);
+  // pi's on-disk Catalog is in write form: the escape is what puts it there, so
+  // comparing against the unescaped compiled Catalog would report the escape
+  // itself as drift on every sync forever — breaking convergence for any value
+  // that needs one. The compiled side is escaped to match, so the difference is
+  // a real difference in what the Score says, not a difference in encoding.
+  const asOnDisk = agent === "pi" ? escapePiCatalog(compiled) : compiled;
+  const diffs = diffCatalog(asOnDisk, read.catalog);
+  const doomed = doomedProviders(asOnDisk, read.catalog);
   if (diffs.length === 0) {
     return {
       agent,
@@ -198,10 +222,13 @@ async function compareAgent(agent: AgentId, score: Score): Promise<AgentCompare>
     compiled: countCatalog(compiled),
     diffs,
     doomed,
-    // omp's write path is the one that exists. pi speaks JSON with escaping the
-    // YAML splice does not do, so no write is prepared for it until its own
-    // takeover ticket lands.
-    ...(agent === "omp" ? { write: { content: replaceCatalogNode(read.text, compiled), sha256: read.sha256 } } : {}),
+    // omp splices its text so its own formatting survives; pi is parsed and
+    // re-serialized, because its JSONC comments and trailing commas have no
+    // text-splice equivalence. Both produce the same compiled Catalog, which
+    // is what makes the two Agents' results semantically equal.
+    ...(agent === "omp"
+      ? { write: { content: replaceCatalogNode(read.text, compiled), sha256: read.sha256 } }
+      : { write: { content: replacePiCatalogNode(read.text, compiled), sha256: read.sha256 } }),
   };
 }
 
@@ -347,10 +374,16 @@ async function commandSync(dryRun: boolean, yes: boolean): Promise<number> {
     return 2;
   }
 
-  // Phase two writes. omp's write path is the one that exists: pi speaks JSON
-  // with escaping the YAML splice does not do, so a drifting pi is reported in
-  // phase one and never written until its own takeover ticket lands.
-  const targets = writable.filter((compare) => !dryRun && compare.agent === "omp" && compare.write !== undefined);
+  // The warning surface runs after the status lines, on its own lines: a run
+  // whose only problem is a warning still exits 0, which is why these are
+  // warnings and not errors. Nothing here edits a sibling file — the default
+  // is the user's setting, and the takeover replaces only a Catalog.
+  for (const warning of danglingWarnings(result.score)) writeErr(`⚠ ${warning}`);
+
+  // Phase two writes. Both Agents have a write path now: omp splices its YAML
+  // text, and `compareAgent` serializes pi's JSONC into standard two-space
+  // JSON with `!`/`$` escaping, so both are expressed as a `write` here.
+  const targets = writable.filter((compare) => !dryRun && compare.write !== undefined);
 
   // The snapshot is taken before the first write, so the files it holds are the
   // ones a rollback must put back — never the ones this sync is replacing. An

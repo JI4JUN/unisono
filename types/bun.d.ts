@@ -84,7 +84,12 @@ declare module "bun:test" {
     toBeDefined(): void;
     toMatch(pattern: RegExp | string): void;
     toHaveLength(length: number): void;
-    not: { toContain(expected: string): void; toBe(expected: unknown): void };
+    not: {
+      toContain(expected: string): void;
+      toBe(expected: unknown): void;
+      toThrow(): void;
+    };
+    toThrow(): void;
   };
 }
 
