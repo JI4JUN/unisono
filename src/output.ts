@@ -35,8 +35,8 @@ export function writeOut(line: string): void {
   Bun.stdout.write(`${line}\n`);
 }
 
-export function writeErr(line: string): void {
-  Bun.stderr.write(`${line}\n`);
+export function writeErr(line: string): Promise<number> {
+  return Bun.stderr.write(`${line}\n`);
 }
 
 function glyph(state: "ok" | "warn" | "fail"): string {
@@ -51,6 +51,6 @@ export function line(state: "ok" | "warn" | "fail", tag: string, subject: string
   writeOut(parts.join(" "));
 }
 
-export function errorLine(text: string): void {
-  writeErr(`${glyph("fail")} ${text}`);
+export function errorLine(text: string): Promise<number> {
+  return writeErr(`${glyph("fail")} ${text}`);
 }

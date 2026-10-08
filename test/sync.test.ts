@@ -148,7 +148,7 @@ describe("unis sync — takeover and preservation", () => {
     writeScore(VALID_SCORE);
     writeDriftingConfig();
 
-    const { stdout, exitCode } = runUnis(["sync"]);
+    const { stdout, exitCode } = runUnis(["sync", "--yes"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Synced (1 providers, 1 models)");
@@ -170,7 +170,7 @@ describe("unis sync — takeover and preservation", () => {
       ].join("\n"),
     );
 
-    runUnis(["sync"]);
+    runUnis(["sync", "--yes"]);
 
     const written = readFileSync(join(ompDir, "models.yml"), "utf8");
     // The user's own text — quoting, commentary, and all — is untouched.
@@ -193,7 +193,7 @@ describe("unis sync — takeover and preservation", () => {
       ['"providers":', "  stale:", "    models: []", "modelOverrides:", "  role: keep"].join("\n"),
     );
 
-    const { exitCode } = runUnis(["sync"]);
+    const { exitCode } = runUnis(["sync", "--yes"]);
 
     expect(exitCode).toBe(0);
     const parsed = Bun.YAML.parse(readFileSync(join(ompDir, "models.yml"), "utf8"));
@@ -276,7 +276,7 @@ describe("unis sync — write safety", () => {
     // Start world-readable, as a hand-written config often is.
     chmodSync(join(ompDir, "models.yml"), 0o644);
 
-    const { exitCode } = runUnis(["sync"]);
+    const { exitCode } = runUnis(["sync", "--yes"]);
 
     expect(exitCode).toBe(0);
     expect(statSync(join(ompDir, "models.yml")).mode & 0o777).toBe(0o600);
@@ -290,7 +290,7 @@ describe("unis sync — write safety", () => {
     writeFileSync(real, "providers:\n  stale: {}\n");
     symlinkSync(real, join(linked, "models.yml"));
 
-    const { stdout, exitCode } = runUnis(["sync"], { OMP_CODING_AGENT_DIR: linked });
+    const { stdout, exitCode } = runUnis(["sync", "--yes"], { OMP_CODING_AGENT_DIR: linked });
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Synced");
@@ -305,7 +305,7 @@ describe("unis sync — write safety", () => {
     writeScore(VALID_SCORE);
     writeDriftingConfig();
 
-    const { exitCode } = runUnis(["sync"]);
+    const { exitCode } = runUnis(["sync", "--yes"]);
 
     expect(exitCode).toBe(0);
     expect(readdirSync(ompDir)).toEqual(["models.yml"]);
@@ -326,8 +326,11 @@ describe("unis sync — write safety", () => {
 
     const { stdout, exitCode } = runUnis(["sync"]);
 
-    expect(exitCode).toBe(0);
+    // The gate fires on pi's undeclared provider and refuses the whole sync, so
+    // the takeover never reaches the write path for either Agent.
+    expect(exitCode).toBe(2);
     expect(stdout).toContain("drifts");
+    expect(stdout).toContain("[PI]");
     // The file is exactly as it was: same bytes, same time, still parseable.
     expect(readFileSync(join(piDir, "models.json"), "utf8")).toBe(piConfig);
     expect(statSync(join(piDir, "models.json")).mtimeMs).toBe(mtimeBefore);
@@ -345,7 +348,7 @@ describe("unis sync — write safety", () => {
     writeScore(VALID_SCORE);
     writeDriftingConfig();
 
-    const first = runUnis(["sync"]);
+    const first = runUnis(["sync", "--yes"]);
     const afterFirst = readFileSync(join(ompDir, "models.yml"), "utf8");
 
     const second = runUnis(["sync"]);
@@ -356,6 +359,155 @@ describe("unis sync — write safety", () => {
     expect(second.stdout).toContain("Unchanged");
     // The second sync made no write, so what the first wrote stands.
     expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toBe(afterFirst);
+  });
+});
+
+describe("unis sync — the first-takeover gate", () => {
+  /** An omp config whose Catalog holds a Provider the Score does not declare. */
+  function writeDoomedConfig(): void {
+    writeFileSync(
+      join(ompDir, "models.yml"),
+      [
+        "modelOverrides:",
+        "  role: hand-written",
+        "providers:",
+        "  hand-tuned:",
+        "    baseUrl: https://hand.example/v1",
+        "    api: openai-completions",
+        "    models:",
+        "      - id: hand-model",
+        "        contextWindow: 8192",
+      ].join("\n"),
+    );
+  }
+
+  test("refuses the whole sync and exits 2 when a Provider would be deleted", () => {
+    writeScore(VALID_SCORE);
+    writeDoomedConfig();
+
+    const { stdout, stderr, exitCode } = runUnis(["sync"]);
+
+    expect(exitCode).toBe(2);
+    expect(stdout + stderr).toContain("would delete Providers not declared in the Score");
+  });
+
+  test("lists the doomed Providers and their models, by id", () => {
+    writeScore(VALID_SCORE);
+    writeDoomedConfig();
+
+    const { stdout, stderr, exitCode } = runUnis(["sync"]);
+
+    expect(exitCode).toBe(2);
+    // The gate is a refusal, so its listing goes to stderr.
+    expect(stdout + stderr).toContain("hand-tuned (models: hand-model)");
+  });
+
+  test("tells the user how to proceed, naming only commands that exist", () => {
+    writeScore(VALID_SCORE);
+    writeDoomedConfig();
+
+    const { stdout, stderr, exitCode } = runUnis(["sync"]);
+
+    expect(exitCode).toBe(2);
+    expect(stdout + stderr).toContain("unis sync --yes");
+    // Every recommended route must exist today, so the reader is never sent to
+    // an "unknown command" at the moment of data loss.
+    expect(stdout + stderr).not.toContain("unis import");
+  });
+
+  test("writes nothing to either Agent while refusing", () => {
+    writeScore(VALID_SCORE);
+    writeDoomedConfig();
+    const before = readFileSync(join(ompDir, "models.yml"), "utf8");
+    const piConfig = JSON.stringify({ settings: { defaultModel: "hand-tuned/hand-model" } }, null, 2);
+    writeFileSync(join(piDir, "models.json"), piConfig);
+    const ompMtimeBefore = ompMtime();
+    const piMtimeBefore = statSync(join(piDir, "models.json")).mtimeMs;
+
+    const { exitCode } = runUnis(["sync"]);
+
+    expect(exitCode).toBe(2);
+    // Not even the Agent whose Catalog only drifts was touched.
+    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toBe(before);
+    expect(readFileSync(join(piDir, "models.json"), "utf8")).toBe(piConfig);
+    expect(ompMtime()).toBe(ompMtimeBefore);
+    expect(statSync(join(piDir, "models.json")).mtimeMs).toBe(piMtimeBefore);
+  });
+
+  test("proceeds with the takeover when --yes is passed", () => {
+    writeScore(VALID_SCORE);
+    writeDoomedConfig();
+
+    const { stdout, stderr, exitCode } = runUnis(["sync", "--yes"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Synced (1 providers, 1 models)");
+    // The written Catalog holds exactly what the Score declares: the doomed
+    // entry is gone, and the non-Catalog node survived the takeover.
+    expect(JSON.stringify(ompCatalog())).toBe(JSON.stringify(COMPILED_CATALOG));
+    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toContain("role: hand-written");
+  });
+
+  test("does not fire when the Catalog already matches the Score's providers", () => {
+    // A Catalog holding exactly the declared Providers — even one whose fields
+    // drift from the compiled result — deletes nothing, so the gate stays shut.
+    writeScore(VALID_SCORE);
+    const converged = Bun.YAML.stringify({ providers: COMPILED_CATALOG }, null, 2);
+    writeFileSync(join(ompDir, "models.yml"), converged);
+    const mtimeBefore = ompMtime();
+
+    const { stdout, exitCode } = runUnis(["sync"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Unchanged (1 providers, 1 models)");
+    expect(stdout).not.toContain("would delete");
+    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toBe(converged);
+    expect(ompMtime()).toBe(mtimeBefore);
+  });
+
+  test("previews the deletion with --dry-run without demanding confirmation", () => {
+    writeScore(VALID_SCORE);
+    writeDoomedConfig();
+
+    const { exitCode } = runUnis(["sync", "--dry-run"]);
+
+    // A preview never writes, so it reports what a takeover would delete and
+    // exits 0 rather than asking for a confirmation it will never act on.
+    expect(exitCode).toBe(0);
+    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toContain("hand-tuned");
+  });
+
+  test("does not fire when a Provider the Score declares is merely drifting", () => {
+    // The score declares `deepseek`; the on-disk Catalog holds it with fields
+    // that differ. That is ordinary drift, not a deletion, so the gate stays
+    // shut even though the sync still writes.
+    writeScore(VALID_SCORE);
+    writeFileSync(
+      join(ompDir, "models.yml"),
+      ["providers:", "  deepseek:", "    baseUrl: https://wrong.example/v1"].join("\n"),
+    );
+
+    const { stdout, exitCode } = runUnis(["sync"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).not.toContain("would delete");
+    expect(JSON.stringify(ompCatalog())).toBe(JSON.stringify(COMPILED_CATALOG));
+  });
+
+  test("gates on a Provider whose id shadows an Object key", () => {
+    // `constructor` and `toString` are own keys of a parsed Catalog but also
+    // resolve on Object.prototype. If the gate asked `id in compiled` it would
+    // find them "declared" by a Score that never declared them — keeping the
+    // gate shut over an entry the takeover then deletes silently.
+    writeScore(VALID_SCORE);
+    writeFileSync(join(ompDir, "models.yml"), "providers:\n  constructor:\n    models: []\n");
+
+    const { stdout, stderr, exitCode } = runUnis(["sync"]);
+
+    expect(exitCode).toBe(2);
+    expect(stdout + stderr).toContain("OMP: constructor");
+    // The refusal withheld the write, so the entry is still there.
+    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toContain("constructor");
   });
 });
 

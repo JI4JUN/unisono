@@ -51,8 +51,8 @@ declare namespace Bun {
 
   const argv: string[];
   const env: Record<string, string | undefined>;
-  const stdout: { isTTY: boolean; write(chunk: string): boolean };
-  const stderr: { write(chunk: string): boolean };
+  const stdout: { isTTY: boolean; write(chunk: string): Promise<number> };
+  const stderr: { write(chunk: string): Promise<number> };
 }
 
 declare const process: {
@@ -61,8 +61,8 @@ declare const process: {
   /** Absolute path of the running executable; used to spawn the real CLI. */
   execPath: string;
   exit(code: number): never;
-  stdout: { write(chunk: string): boolean };
-  stderr: { write(chunk: string): boolean };
+  stdout: { write(chunk: string): Promise<number> };
+  stderr: { write(chunk: string): Promise<number> };
 };
 
 interface ImportMeta {

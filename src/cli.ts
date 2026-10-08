@@ -16,7 +16,7 @@ import { loadScore, type Score } from "./score";
 import { compileCatalog } from "./compiler";
 import { replaceCatalogNode } from "./sync";
 import { atomicWrite, type WriteResult } from "./writer";
-import { diffCatalog, type CatalogDiff } from "./merger";
+import { diffCatalog, doomedProviders, type CatalogDiff } from "./merger";
 import { errorLine, line, writeErr, writeOut } from "./output";
 
 const USAGE = `unis — one Score, two Agents in unison.
@@ -97,6 +97,7 @@ function countOnly(report: AgentReport): AgentCompare {
     disk: { providers: report.providers, models: report.models },
     compiled: { providers: 0, models: 0 },
     diffs: [],
+    doomed: {},
   };
 }
 
@@ -140,6 +141,8 @@ type AgentCompare = {
   compiled: { providers: number; models: number };
   /** The semantic differences, empty unless the state is `synced` or `drifts`. */
   diffs: CatalogDiff[];
+  /** Providers a takeover would delete, empty unless the state is `drifts`. */
+  doomed: Record<string, string[]>;
   /** The takeover content to write, when there is anything to take over. */
   write?: { content: string; sha256: string | null };
 };
@@ -158,11 +161,13 @@ async function compareAgent(agent: AgentId, score: Score): Promise<AgentCompare>
       disk: { providers: 0, models: 0 },
       compiled: { providers: 0, models: 0 },
       diffs: [],
+      doomed: {},
     };
   }
 
   const compiled = compileCatalog(score, agent);
   const diffs = diffCatalog(compiled, read.catalog);
+  const doomed = doomedProviders(compiled, read.catalog);
   if (diffs.length === 0) {
     return {
       agent,
@@ -171,6 +176,7 @@ async function compareAgent(agent: AgentId, score: Score): Promise<AgentCompare>
       disk: countCatalog(read.catalog),
       compiled: countCatalog(compiled),
       diffs,
+      doomed,
     };
   }
 
@@ -181,6 +187,7 @@ async function compareAgent(agent: AgentId, score: Score): Promise<AgentCompare>
     disk: countCatalog(read.catalog),
     compiled: countCatalog(compiled),
     diffs,
+    doomed,
     // omp's write path is the one that exists. pi speaks JSON with escaping the
     // YAML splice does not do, so no write is prepared for it until its own
     // takeover ticket lands.
@@ -257,7 +264,7 @@ async function commandDiff(): Promise<number> {
  * `--dry-run` performs the same comparison and reports the same differences
  * without writing, which is what makes it safe to run before a takeover.
  */
-async function commandSync(dryRun: boolean): Promise<number> {
+async function commandSync(dryRun: boolean, yes: boolean): Promise<number> {
   const path = scorePath();
   const result = await loadScore(path);
   if (!result.ok) {
@@ -268,6 +275,14 @@ async function commandSync(dryRun: boolean): Promise<number> {
 
   writeOut(`🎼 Unisono — one Score, two Agents in unison.`);
   let failed = false;
+
+  // Phase one compares every Agent and prints its state. Nothing is written
+  // yet, so the wholesale-takeover gate can consider all of them: a single
+  // Agent whose Catalog holds Providers the Score does not declare refuses the
+  // whole sync, which is what stops an operator from losing a hand-written
+  // entry on one Agent while a routine drift was being fixed on the other.
+  const gated: string[] = [];
+  const writable: AgentCompare[] = [];
   for (const agent of AGENT_IDS) {
     const compare = await compareAgent(agent, result.score);
     const tag = agent.toUpperCase();
@@ -298,9 +313,34 @@ async function commandSync(dryRun: boolean): Promise<number> {
       writeOut(`      Score says  ${diff.expected}`);
       writeOut(`      on disk     ${diff.actual}`);
     }
-    // omp's write path is the one that exists: pi speaks JSON with escaping the
-    // YAML splice does not do, so a drifting pi is reported and never written
-    // until its own takeover ticket lands.
+
+    const doomedIds = Object.keys(compare.doomed);
+    if (doomedIds.length > 0) {
+      gated.push(`${tag}: ${listDoomed(compare.doomed)}`);
+    }
+    // A doomed Agent is written too when the gate is passed, because the
+    // deletion is exactly what `--yes` confirms — so refusing to write it would
+    // make the flag meaningless. The gate below decides whether this proceeds.
+    writable.push(compare);
+  }
+
+  // `--dry-run` only previews, so it reports the deletions without demanding
+  // the confirmation it will never act on. Refusing there would send a user who
+  // ran the safe preview to exit 2, implying an imminent write. The gate is
+  // therefore armed for a real sync unless explicitly confirmed with `--yes`,
+  // and `unis import` clears it by putting those Providers in the Score.
+  if (gated.length > 0 && !dryRun && !yes) {
+    // Awaited, not fired: `main` ends in process.exit, which would cut the
+    // stderr writes off mid-flight and leave an operator with a truncated
+    // deletion list — the one message that must survive a redirected log.
+    for (const refusal of takeoverRefusals(gated)) await writeErr(refusal);
+    return 2;
+  }
+
+  // Phase two writes. omp's write path is the one that exists: pi speaks JSON
+  // with escaping the YAML splice does not do, so a drifting pi is reported in
+  // phase one and never written until its own takeover ticket lands.
+  for (const compare of writable) {
     if (dryRun || compare.agent !== "omp") continue;
     const write = compare.write;
     if (write === undefined) continue;
@@ -308,20 +348,53 @@ async function commandSync(dryRun: boolean): Promise<number> {
     const written = writeFile(compare.path, write.content, write.sha256);
     if (!written.wrote) {
       if (written.reason === "changed-underneath") {
-        errorLine(`[${tag}] ${compare.path} changed underneath this sync; nothing was written`);
+        errorLine(`[${compare.agent.toUpperCase()}] ${compare.path} changed underneath this sync; nothing was written`);
       }
       failed = true;
       continue;
     }
     line(
       "ok",
-      tag,
+      compare.agent.toUpperCase(),
       compare.path,
       `Synced (${compare.compiled.providers} providers, ${compare.compiled.models} models)`,
     );
   }
 
   return failed ? 1 : 0;
+}
+
+/**
+ * The takeover refusal, as lines to print.
+ *
+ * The gate exists because takeover is wholesale (ADR 0001): the Providers
+ * listed here are gone the moment the Catalog is replaced. So the refusal
+ * names them by id — and their models, since those go with them — then gives
+ * the way forward: declare them in the Score, or confirm the deletion. Naming
+ * `unis import` here would send the reader to a command that does not exist
+ * yet, which is the least useful answer at the exact moment of data loss.
+ */
+function takeoverRefusals(gated: string[]): string[] {
+  return [
+    `first takeover would delete Providers not declared in the Score: ${gated.join("; ")}`,
+    `a takeover replaces each Catalog wholesale, so those entries are lost`,
+    `add them to the Score first, or re-run "unis sync --yes" to confirm the deletion`,
+  ];
+}
+
+/**
+ * `stale`, or `stale (models: a, b)` when the doomed Provider carries models.
+ *
+ * The models are what goes with the Provider, so they are named alongside it:
+ * a reader can then tell a provider with models apart from an empty shell.
+ */
+function formatDoomed(id: string, models: string[]): string {
+  return models.length === 0 ? id : `${id} (models: ${models.join(", ")})`;
+}
+
+/** The doomed ids of one Agent, as one line for the refusal. */
+function listDoomed(doomed: Record<string, string[]>): string {
+  return Object.entries(doomed).map(([id, models]) => formatDoomed(id, models)).join(", ");
 }
 
 /**
@@ -371,16 +444,19 @@ export async function main(argv: string[]): Promise<number> {
 
   switch (command) {
     case "sync": {
-      // `--dry-run` previews the same takeover without writing. Any other
-      // argument is a typo the user should hear about, in any position, rather
-      // than silence the sync runs with.
+      // `--dry-run` previews the same takeover without writing; `--yes`
+      // confirms the deletion a first takeover would cause (spec §4.1, §5.1).
+      // Any other argument is a typo the user should hear about, in any
+      // position, rather than silence the sync runs with.
+      const known = ["--dry-run", "--yes"];
       const dryRun = argv.includes("--dry-run");
-      const unknown = argv.filter((arg) => arg.startsWith("-") && arg !== "--dry-run");
+      const yes = argv.includes("--yes");
+      const unknown = argv.filter((arg) => arg.startsWith("-") && !known.includes(arg));
       if (unknown.length > 0) {
         errorLine(`unknown flag: ${unknown[0]}`);
         exitWithUsage();
       }
-      return await commandSync(dryRun);
+      return await commandSync(dryRun, yes);
     }
     case "list":
       return await commandList();

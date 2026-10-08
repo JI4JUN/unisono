@@ -68,9 +68,53 @@ export function diffCatalog(expected: Catalog, actual: Catalog): CatalogDiff[] {
   return diffs;
 }
 
+/**
+ * The Providers a wholesale takeover would delete, each with the model ids it carries.
+ *
+ * The gate is stated at Provider granularity (spec §5.1): a Provider the Score
+ * does not declare is deleted, and its Models go with it — which is why the
+ * model ids are projected alongside it, so the user sees the whole loss by id.
+ * A Model dropped from a Provider that survives is not a deletion of a
+ * Provider, so it does not gate the takeover; `diff` still reports it as drift.
+ */
+export function doomedProviders(compiled: Catalog, actual: Catalog): Record<string, string[]> {
+  const doomed: Record<string, string[]> = {};
+  for (const id of Object.keys(actual)) {
+    // `Object.hasOwn`, not `in`: an id like `constructor` is an own key here,
+    // and `in` would resolve it against Object.prototype and declare the Score
+    // to have Providers it never declared — letting the gate stay shut over a
+    // Provider the takeover then deletes silently.
+    if (Object.hasOwn(compiled, id)) continue;
+    doomed[id] = modelIdsOf(actual[id]);
+  }
+  return doomed;
+}
+
+/** The model ids a Provider's `models` list declares, in file order. */
+function modelIdsOf(provider: Record<string, unknown> | undefined): string[] {
+  const models = provider?.["models"];
+  if (!isListNode(models)) return [];
+
+  const ids: string[] = [];
+  for (const model of models) {
+    if (!isObjectNode(model)) continue;
+    const id = model["id"];
+    if (typeof id === "string") ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * The Provider-level differences between the two Catalogs, by provider id.
+ *
+ * `Object.hasOwn` rather than `in` for every id test below: an Agent's Catalog
+ * key names whatever the user wrote, so an id like `constructor` is an own key
+ * that `in` would resolve against Object.prototype and mistake for being
+ * declared on the other side — hiding the very difference being collected.
+ */
 function collectProviderDiffs(expected: Catalog, actual: Catalog, diffs: CatalogDiff[]): void {
   for (const id of Object.keys(expected)) {
-    if (id in actual) continue;
+    if (Object.hasOwn(actual, id)) continue;
     diffs.push({
       at: id,
       expected: renderValue(expected[id], id),
@@ -78,7 +122,7 @@ function collectProviderDiffs(expected: Catalog, actual: Catalog, diffs: Catalog
     });
   }
   for (const id of Object.keys(actual)) {
-    if (id in expected) continue;
+    if (Object.hasOwn(expected, id)) continue;
     diffs.push({
       at: id,
       expected: "<absent — will be removed>",
@@ -87,7 +131,7 @@ function collectProviderDiffs(expected: Catalog, actual: Catalog, diffs: Catalog
   }
 
   for (const id of Object.keys(expected)) {
-    if (!(id in actual)) continue;
+    if (!Object.hasOwn(actual, id)) continue;
     collectNodeDiffs(expected[id], actual[id], id, diffs);
   }
 }
