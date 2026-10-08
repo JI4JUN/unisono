@@ -39,6 +39,15 @@ declare namespace Bun {
     function parse(input: string): unknown;
   }
 
+  /** SHA-256 and friends over bytes, for optimistic locking (spec §5.3). */
+  class CryptoHasher {
+    constructor(algorithm: "sha256");
+    update(data: string | Uint8Array): CryptoHasher;
+    digest(encoding: "hex"): string;
+  }
+
+  function randomUUIDv7(): string;
+
   const argv: string[];
   const env: Record<string, string | undefined>;
   const stdout: { isTTY: boolean; write(chunk: string): boolean };
@@ -76,16 +85,23 @@ declare module "bun:test" {
 declare module "node:fs" {
   export function existsSync(path: string): boolean;
   export function mkdirSync(path: string, options: { recursive?: boolean }): string | undefined;
-  export function writeFileSync(path: string, data: string | Uint8Array): void;
+  export function writeFileSync(path: string, data: string | Uint8Array, options?: { mode?: number }): void;
   export function readFileSync(path: string, encoding: "utf8"): string;
   export function mkdtempSync(prefix: string): string;
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
-}
-
-declare module "node:os" {
-  export function tmpdir(): string;
+  export function renameSync(oldPath: string, newPath: string): void;
+  export function realpathSync(path: string): string;
+  export function lstatSync(path: string): { isSymbolicLink(): boolean };
+  export function statSync(path: string): { mode: number; mtimeMs?: number };
 }
 
 declare module "node:path" {
   export function join(...parts: string[]): string;
+  export function dirname(path: string): string;
+  export function basename(path: string): string;
+}
+
+declare module "node:os" {
+  export function tmpdir(): string;
+  export function homedir(): string;
 }
