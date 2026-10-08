@@ -9,6 +9,7 @@
  */
 
 import { agentConfigPath, isAgentInstalled, type AgentId } from "./paths";
+import { hashFile } from "./writer";
 
 /** A Catalog as parsed from disk: unknown-shaped, but `providers` must be a map. */
 export type RawConfig = Record<string, unknown>;
@@ -74,22 +75,22 @@ export function countCatalog(catalog: Catalog): { providers: number; models: num
 export async function readCatalog(
   agent: AgentId,
 ): Promise<
-  { ok: true; path: string; catalog: Catalog } | { ok: false; path: string; reason: string }
+  { ok: true; path: string; catalog: Catalog; text: string; sha256: string | null } |
+  { ok: false; path: string; reason: string }
 > {
   const path = agentConfigPath(agent);
   if (!isAgentInstalled(agent)) {
     return { ok: false, path, reason: "not installed" };
   }
 
-  let config: RawConfig;
+  const text = await Bun.file(path).text();
   try {
-    config = parseConfig(agent, await Bun.file(path).text());
+    const config = parseConfig(agent, text);
+    return { ok: true, path, catalog: catalogOf(config), text, sha256: hashFile(path) };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return { ok: false, path, reason };
   }
-
-  return { ok: true, path, catalog: catalogOf(config) };
 }
 
 /**

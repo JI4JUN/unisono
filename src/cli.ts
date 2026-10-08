@@ -14,6 +14,8 @@ import { AGENT_IDS, scorePath, type AgentId } from "./paths";
 import { countCatalog, inspectAgent, readCatalog, type AgentReport } from "./agent";
 import { loadScore, type Score } from "./score";
 import { compileCatalog } from "./compiler";
+import { replaceCatalogNode } from "./sync";
+import { atomicWrite, type WriteResult } from "./writer";
 import { diffCatalog, type CatalogDiff } from "./merger";
 import { errorLine, line, writeErr, writeOut } from "./output";
 
@@ -135,8 +137,10 @@ type AgentCompare = {
   disk: { providers: number; models: number };
   /** Provider and model counts of the compiled Catalog. */
   compiled: { providers: number; models: number };
-  /** The semantic differences; empty unless the state is `synced` or `drifts`. */
+  /** The semantic differences, empty unless the state is `synced` or `drifts`. */
   diffs: CatalogDiff[];
+  /** The takeover content to write, when there is anything to take over. */
+  write?: { content: string; sha256: string | null };
 };
 
 /** Compares one Agent's Catalog against the Score's, reporting rather than throwing. */
@@ -158,13 +162,28 @@ async function compareAgent(agent: AgentId, score: Score): Promise<AgentCompare>
 
   const compiled = compileCatalog(score, agent);
   const diffs = diffCatalog(compiled, read.catalog);
+  if (diffs.length === 0) {
+    return {
+      agent,
+      path: read.path,
+      state: "synced",
+      disk: countCatalog(read.catalog),
+      compiled: countCatalog(compiled),
+      diffs,
+    };
+  }
+
   return {
     agent,
     path: read.path,
-    state: diffs.length === 0 ? "synced" : "drifts",
+    state: "drifts",
     disk: countCatalog(read.catalog),
     compiled: countCatalog(compiled),
     diffs,
+    write: {
+      content: replaceCatalogNode(read.text, compiled),
+      sha256: read.sha256,
+    },
   };
 }
 
@@ -226,6 +245,98 @@ async function commandDiff(): Promise<number> {
 }
 
 /**
+ * `unis sync` — take both Agents' Catalogs over with the compiled one.
+ *
+ * The comparison is the switch: an Agent whose Catalog already equals what the
+ * Score compiles to is left completely alone — no snapshot, no write, mtime
+ * untouched — and reports `Unchanged`. Only a real difference reaches the write
+ * path, so a second sync of an unchanged Score is a no-op rather than a
+ * churn of bytes.
+ *
+ * `--dry-run` performs the same comparison and reports the same differences
+ * without writing, which is what makes it safe to run before a takeover.
+ */
+async function commandSync(dryRun: boolean): Promise<number> {
+  const path = scorePath();
+  const result = await loadScore(path);
+  if (!result.ok) {
+    for (const error of result.errors) errorLine(`${path}: ${error}`);
+    return 1;
+  }
+  for (const warning of result.warnings) writeErr(`⚠ ${warning}`);
+
+  writeOut(`🎼 Unisono — one Score, two Agents in unison.`);
+  let drifting = 0;
+  let failed = false;
+  for (const agent of AGENT_IDS) {
+    const compare = await compareAgent(agent, result.score);
+    const tag = agent.toUpperCase();
+
+    if (compare.state === "skipped") {
+      line("warn", tag, compare.path, "Skipped (not installed)");
+      continue;
+    }
+    if (compare.state === "failed") {
+      line("fail", tag, compare.path, "Failed: config cannot be parsed");
+      failed = true;
+      continue;
+    }
+
+    if (compare.state === "synced") {
+      line(
+        "ok",
+        tag,
+        compare.path,
+        `Unchanged (${compare.compiled.providers} providers, ${compare.compiled.models} models)`,
+      );
+      continue;
+    }
+
+    const write = compare.write;
+    if (write === undefined) continue;
+
+    drifting += 1;
+    line("warn", tag, compare.path, `drifts in ${compare.diffs.length} field(s)`);
+    for (const diff of compare.diffs) {
+      writeOut(`    ${diff.at}`);
+      writeOut(`      Score says  ${diff.expected}`);
+      writeOut(`      on disk     ${diff.actual}`);
+    }
+    if (dryRun) continue;
+
+    const written = writeFile(compare.path, write.content, write.sha256);
+    if (!written.wrote) {
+      errorLine(`[${tag}] ${compare.path} changed underneath this sync; nothing was written`);
+      failed = true;
+      continue;
+    }
+    line(
+      "ok",
+      tag,
+      compare.path,
+      `Synced (${compare.compiled.providers} providers, ${compare.compiled.models} models)`,
+    );
+  }
+
+  return failed ? 1 : 0;
+}
+
+/**
+ * Writes an Agent's config atomically, reporting what happened.
+ *
+ * The file's hash is re-checked inside the write, so a concurrent edit aborts
+ * rather than being silently overwritten.
+ */
+function writeFile(path: string, content: string, sha256: string | null): WriteResult {
+  try {
+    return atomicWrite(path, content, sha256);
+  } catch (error) {
+    errorLine(`cannot write ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    return { wrote: false, reason: "changed-underneath" };
+  }
+}
+
+/**
  * `unis list` — the Score in use, then per-Agent path, presence, and size.
  *
  * When the Score can be read, each Agent is compared against its compiled
@@ -253,6 +364,16 @@ export async function main(argv: string[]): Promise<number> {
   if (!command) exitWithUsage();
 
   switch (command) {
+    case "sync": {
+      // `--dry-run` previews the same takeover without writing; any other
+      // flag is a typo the user should hear about, not silence to ignore.
+      const dryRun = argv[1] === "--dry-run";
+      if (argv[1] !== undefined && !dryRun) {
+        errorLine(`unknown flag: ${argv[1]}`);
+        exitWithUsage();
+      }
+      return await commandSync(dryRun);
+    }
     case "list":
       return await commandList();
     case "diff":

@@ -33,6 +33,7 @@ declare namespace Bun {
 
   namespace YAML {
     function parse(input: string): unknown;
+    function stringify(value: unknown, replacer: null, indent: number): string;
   }
 
   namespace JSONC {
@@ -77,7 +78,9 @@ declare module "bun:test" {
   export function test(name: string, fn: () => void | Promise<void>): void;
   export function expect(received: unknown): {
     toBe(expected: unknown): void;
+    toEqual(expected: unknown): void;
     toContain(expected: string): void;
+    toBeLessThan(expected: number): void;
     not: { toContain(expected: string): void; toBe(expected: unknown): void };
   };
 }
@@ -91,8 +94,11 @@ declare module "node:fs" {
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
   export function renameSync(oldPath: string, newPath: string): void;
   export function realpathSync(path: string): string;
+  export function chmodSync(path: string, mode: number): void;
+  export function readdirSync(path: string): string[];
+  export function symlinkSync(target: string, path: string): void;
   export function lstatSync(path: string): { isSymbolicLink(): boolean };
-  export function statSync(path: string): { mode: number; mtimeMs?: number };
+  export function statSync(path: string): { mode: number; mtimeMs: number };
 }
 
 declare module "node:path" {
