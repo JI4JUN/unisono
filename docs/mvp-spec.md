@@ -261,7 +261,7 @@ unisono/
 │   ├── cli.ts                 # 入口 + 命令路由
 │   ├── types.ts               # Score / Provider / Model / Override / Adapter 类型
 │   ├── paths.ts               # XDG 与 Agent 路径探测
-│   ├── parser.ts              # Score 读取、校验、${ENV} 展开
+│   ├── score.ts               # Score 读取、校验、${ENV} 展开（与 Score 类型同变，故合一）
 │   ├── merger.ts              # Override 深合并、Catalog 判等、原子写 + 0600
 │   ├── backup.ts              # 快照、3 次轮转、rollback
 │   ├── importer.ts            # import → Score 草稿
@@ -271,12 +271,12 @@ unisono/
 │       └── pi.ts
 └── test/
     ├── fixtures/              # 脱敏 omp models.yml + pi models.json 样本
-    ├── parser.test.ts
-    ├── merger.test.ts
-    └── adapters.test.ts
+    └── cli.test.ts            # 按命令划分：每个命令一个文件，驱动真实二进制
 ```
 
 `AgentAdapter` 接口（MVP 裁剪版）：`id`、`resolvePath()`、`isDetected()`、`readExisting()`、`extractCatalogProviderIds()`、`isCatalogEqual()`、`compile()`、`serialize()`、`checkDanglingReferences()`。
+
+> **测试布局以已发布 spec #1 的 Testing Decisions 为准：单一 CLI 接缝。** 测试驱动真实 `unis` 二进制作为子进程，指向 per-test 临时目录，断言最终文件、权限、输出与退出码；不 import 内部模块，不断言源码文本。按命令分文件（`cli.test.ts` 起，逐步增加 `sync.test.ts` 等），而非按内部模块分文件——后者需要重复 fixtures、与实现结构平行，且无法断言退出码与输出。
 
 ---
 

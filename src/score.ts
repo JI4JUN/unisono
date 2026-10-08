@@ -87,6 +87,16 @@ function unknownKeys(node: Record<string, unknown>, known: Record<string, true>)
   return Object.keys(node).filter((key) => !(key in known));
 }
 
+/** A required-or-optional text field must hold a string, and a present one must be non-empty. */
+function checkStringField(at: string, value: unknown, report: Report): void {
+  if (value === undefined || value === null) return;
+  if (typeof value !== "string") {
+    report.fail(`${at} must be a string, got ${JSON.stringify(value)}`);
+  } else if (value === "") {
+    report.fail(`${at} must not be empty`);
+  }
+}
+
 /** A required-or-optional integer field must be a whole number above zero. */
 function checkPositiveInteger(at: string, value: unknown, report: Report): void {
   if (value === undefined || value === null) return;
@@ -100,9 +110,8 @@ function checkPositiveInteger(at: string, value: unknown, report: Report): void 
 /**
  * Expands `${VAR_NAME}` to the variable's value.
  *
- * Returns an error naming the variable when it is undefined or empty — an
- * empty credential must never reach a config. The second pass only expands
- * `apiKey`s that already validated, so it reports rather than re-fails.
+ * Reports each variable that is undefined or empty — an empty credential must
+ * never reach a config.
  */
 function expandEnvReferences(
   value: string,
@@ -118,11 +127,6 @@ function expandEnvReferences(
   });
 }
 
-/** Expands credential references that have already passed validation. */
-function expandKey(value: string): string {
-  return expandEnvReferences(value, () => {});
-}
-
 function checkProvider(id: string, value: unknown, report: Report): void {
   const label = `provider '${id}'`;
   if (!isObjectNode(value)) {
@@ -133,6 +137,8 @@ function checkProvider(id: string, value: unknown, report: Report): void {
   for (const field of ["name", "baseUrl", "apiKey", "apiType", "models"]) {
     if (value[field] === undefined || value[field] === null) {
       report.fail(`${label}.${field} is required`);
+    } else if (field !== "models" && value[field] === "") {
+      report.fail(`${label}.${field} must not be empty`);
     }
   }
 
@@ -140,24 +146,22 @@ function checkProvider(id: string, value: unknown, report: Report): void {
     report.warn(`unknown field '${key}' in ${label} — possible typo`);
   }
 
+  checkStringField(`${label}.name`, value["name"], report);
+  checkStringField(`${label}.baseUrl`, value["baseUrl"], report);
+  checkStringField(`${label}.apiKey`, value["apiKey"], report);
+
+  const apiKey = value["apiKey"];
+  if (typeof apiKey === "string") {
+    expandEnvReferences(apiKey, (name) =>
+      report.fail(`${label}.apiKey references environment variable ${name}, which is not defined or is empty`),
+    );
+  }
+
   const apiType = value["apiType"];
   if (apiType !== undefined && apiType !== null) {
     if (typeof apiType !== "string" || !(apiType in API_TYPES)) {
       report.fail(`${label}.apiType ${JSON.stringify(apiType)} is not one of ${Object.keys(API_TYPES).join(", ")}`);
     }
-  }
-
-  if (typeof value["apiKey"] === "string") {
-    expandEnvReferences(value["apiKey"], (name) =>
-      report.fail(`${label}.apiKey references environment variable ${name}, which is not defined or is empty`),
-    );
-  }
-
-  if (value["name"] !== undefined && typeof value["name"] !== "string") {
-    report.fail(`${label}.name must be a string, got ${JSON.stringify(value["name"])}`);
-  }
-  if (value["baseUrl"] !== undefined && typeof value["baseUrl"] !== "string") {
-    report.fail(`${label}.baseUrl must be a string, got ${JSON.stringify(value["baseUrl"])}`);
   }
 
   checkModels(label, id, value["models"], report);
@@ -201,6 +205,10 @@ function checkModel(
   for (const field of ["id", "name"]) {
     if (entry[field] === undefined || entry[field] === null) {
       report.fail(`${at}.${field} is required (provider '${providerId}')`);
+    } else if (entry[field] === "") {
+      report.fail(`${at}.${field} must not be empty`);
+    } else if (typeof entry[field] !== "string") {
+      report.fail(`${at}.${field} must be a string, got ${JSON.stringify(entry[field])}`);
     }
   }
   if (entry["contextWindow"] === undefined || entry["contextWindow"] === null) {
@@ -217,12 +225,6 @@ function checkModel(
     seen[id] = true;
   }
 
-  for (const field of ["id", "name"]) {
-    const value = entry[field];
-    if (value !== undefined && value !== null && typeof value !== "string") {
-      report.fail(`${at}.${field} must be a string, got ${JSON.stringify(value)}`);
-    }
-  }
   for (const field of ["contextWindow", "maxTokens"]) {
     checkPositiveInteger(`${at}.${field}`, entry[field], report);
   }
@@ -241,7 +243,8 @@ function toScore(version: unknown, providers: Record<string, unknown>): Score {
     built[id] = {
       name: provider["name"] as string,
       baseUrl: provider["baseUrl"] as string,
-      apiKey: expandKey(provider["apiKey"] as string),
+      // Already validated, so every reference resolved; expand silently.
+      apiKey: expandEnvReferences(provider["apiKey"] as string, () => {}),
       apiType: provider["apiType"] as string,
       ...(isObjectNode(provider["headers"]) ? { headers: provider["headers"] } : {}),
       ...(isObjectNode(provider["overrides"]) ? { overrides: provider["overrides"] } : {}),

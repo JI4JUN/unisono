@@ -206,6 +206,36 @@ describe("unis validate — structural failures", () => {
     }
   });
 
+  test("a numeric apiKey is rejected, not crashed on", () => {
+    // An apiKey holding a number used to escape every check and throw a
+    // TypeError from expansion, taking the command down with a stack trace.
+    writeScore(VALID_SCORE.replace('    apiKey: "${UNIS_TEST_KEY}"\n', "    apiKey: 12345\n"));
+
+    const { stdout, stderr, exitCode } = runValidate({});
+
+    expect(exitCode).toBe(1);
+    expect(stdout + stderr).toContain("apiKey must be a string");
+    expect(stdout + stderr).not.toContain("TypeError");
+  });
+
+  test("empty required strings are rejected", () => {
+    const cases: Array<[string, string]> = [
+      ['    name: "DeepSeek Official"\n', '    name: ""\n'],
+      ['    baseUrl: "https://api.deepseek.com/v1"\n', '    baseUrl: ""\n'],
+      ['    apiKey: "${UNIS_TEST_KEY}"\n', '    apiKey: ""\n'],
+      ['      - id: "deepseek-chat"\n', '      - id: ""\n'],
+      ['        name: "DeepSeek V3"\n', '        name: ""\n'],
+    ];
+    for (const [from, to] of cases) {
+      writeScore(VALID_SCORE.replace(from, to));
+
+      const { stdout, stderr, exitCode } = runValidate({ UNIS_TEST_KEY: "k" });
+
+      expect(exitCode).toBe(1);
+      expect(stdout + stderr).toContain("must not be empty");
+    }
+  });
+
   test("a provider with no models is rejected", () => {
     writeScore(VALID_SCORE.replace(/      - id:[\s\S]*?contextWindow: 65536\n/, "      []\n"));
 

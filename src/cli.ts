@@ -22,7 +22,7 @@ Usage:
   unis sync --yes      Confirm a first takeover
   unis sync --dry-run  Preview the change without writing
   unis diff            Score-compiled Catalog vs the on-disk Catalogs
-  unis validate        Check the Score, expand variables, warn on dangling refs
+  unis validate        Check the Score and expand credential references
   unis list            Show each Agent's path, presence, and Catalog counts
   unis import <agent>  Generate a Score draft from an Agent's Catalog (omp | pi)
   unis rollback        Restore the most recent snapshot
@@ -54,7 +54,8 @@ function reportLine(report: AgentReport): void {
  *
  * A Score with only warnings exits 0; any error exits 1. Environment
  * expansion happens here, so a missing credential is caught before any
- * sync could write a blank key.
+ * sync could write a blank key. Dangling-reference warnings arrive with
+ * their own ticket; this command reports only Score problems.
  */
 async function commandValidate(): Promise<number> {
   const path = scorePath();

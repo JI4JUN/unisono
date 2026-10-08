@@ -1,7 +1,7 @@
 /**
  * Canonical runtime guards for data parsed from external files.
  *
- * Values read out of YAML or JSONC configs arrive as `unknown`, so their
+ * Values read out of YAML or JSONC files arrive as `unknown`, so their
  * shape is a runtime fact, not a compile-time one. Guards live here rather
  * than being redefined at each call site; they narrow to object-ness only,
  * and the fields are handled with the type checks they need at use.
