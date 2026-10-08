@@ -184,6 +184,25 @@ describe("unis sync — takeover and preservation", () => {
     expect(JSON.stringify(ompCatalog())).toBe(JSON.stringify(COMPILED_CATALOG));
   });
 
+  test("replaces a quoted Catalog key rather than appending a second one", () => {
+    // A user may spell the key `"providers":`; the stale block must be replaced
+    // in place, not left behind beside a canonical duplicate.
+    writeScore(VALID_SCORE);
+    writeFileSync(
+      join(ompDir, "models.yml"),
+      ['"providers":', "  stale:", "    models: []", "modelOverrides:", "  role: keep"].join("\n"),
+    );
+
+    const { exitCode } = runUnis(["sync"]);
+
+    expect(exitCode).toBe(0);
+    const parsed = Bun.YAML.parse(readFileSync(join(ompDir, "models.yml"), "utf8"));
+    // Exactly one Catalog key, holding exactly the compiled Catalog.
+    expect(Object.keys(readKey(parsed, "providers") as object)).toEqual(["deepseek"]);
+    expect(JSON.stringify(readKey(parsed, "providers"))).toBe(JSON.stringify(COMPILED_CATALOG));
+    expect(readKey(parsed, "modelOverrides")).toEqual({ role: "keep" });
+  });
+
   test("appends the Catalog when the config has none", () => {
     writeScore(VALID_SCORE);
     writeFileSync(join(ompDir, "models.yml"), "modelOverrides:\n  role: keep\n");
@@ -290,6 +309,31 @@ describe("unis sync — write safety", () => {
 
     expect(exitCode).toBe(0);
     expect(readdirSync(ompDir)).toEqual(["models.yml"]);
+  });
+
+  test("leaves a drifting pi config untouched, because its write path is not built yet", () => {
+    // pi speaks JSON with escaping the YAML splice does not do: writing it
+    // through the omp path would corrupt the file and destroy its non-Catalog
+    // nodes. Its takeover is a later ticket, so until then it is only reported.
+    writeScore(VALID_SCORE);
+    const piConfig = JSON.stringify(
+      { settings: { defaultModel: "deepseek/deepseek-reasoner" }, providers: { old: { models: [] } } },
+      null,
+      2,
+    );
+    writeFileSync(join(piDir, "models.json"), piConfig);
+    const mtimeBefore = statSync(join(piDir, "models.json")).mtimeMs;
+
+    const { stdout, exitCode } = runUnis(["sync"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("drifts");
+    // The file is exactly as it was: same bytes, same time, still parseable.
+    expect(readFileSync(join(piDir, "models.json"), "utf8")).toBe(piConfig);
+    expect(statSync(join(piDir, "models.json")).mtimeMs).toBe(mtimeBefore);
+    expect(readKey(Bun.JSONC.parse(piConfig), "settings")).toEqual({
+      defaultModel: "deepseek/deepseek-reasoner",
+    });
   });
 
   test("does not overwrite a config that changed after the sync read it", () => {

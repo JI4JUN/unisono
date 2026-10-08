@@ -9,7 +9,7 @@
  */
 
 import { agentConfigPath, isAgentInstalled, type AgentId } from "./paths";
-import { hashFile } from "./writer";
+import { hashText } from "./writer";
 
 /** A Catalog as parsed from disk: unknown-shaped, but `providers` must be a map. */
 export type RawConfig = Record<string, unknown>;
@@ -83,10 +83,22 @@ export async function readCatalog(
     return { ok: false, path, reason: "not installed" };
   }
 
-  const text = await Bun.file(path).text();
+  let text: string;
+  try {
+    text = await Bun.file(path).text();
+  } catch {
+    // The file was expected — `isAgentInstalled` said so — but could not be
+    // read. That is this Agent's failure to report, not a crash.
+    return { ok: false, path, reason: "cannot be read" };
+  }
+
+  // The lock token is hashed from the snapshot text this function just read,
+  // never from a second read of the path: an edit landing between the two
+  // would be hashed into the token, and the §5.3 re-check would then compare
+  // disk against disk and let a stale write through.
   try {
     const config = parseConfig(agent, text);
-    return { ok: true, path, catalog: catalogOf(config), text, sha256: hashFile(path) };
+    return { ok: true, path, catalog: catalogOf(config), text, sha256: hashText(text) };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return { ok: false, path, reason };

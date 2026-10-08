@@ -36,12 +36,14 @@ export function replaceCatalogNode(existing: string, catalog: Catalog): string {
   // under its key, so it never begins a block of its own.
   const starts: number[] = [];
   for (let index = 0; index < lines.length; index += 1) {
-    if (isBlockStart(lines[index] ?? "")) starts.push(index);
+    if (blockKey(lines[index] ?? "") !== null) starts.push(index);
   }
 
   const catalogStart = starts.findIndex((start) => blockKey(lines[start] ?? "") === CATALOG_KEY);
   if (catalogStart === -1) {
-    const kept = starts.map((start, at) => lines.slice(start, starts[at + 1] ?? lines.length).join("\n"));
+    const kept = starts
+      .map((start, at) => lines.slice(start, starts[at + 1] ?? lines.length).join("\n"))
+      .filter((piece) => piece.length > 0);
     return [...kept, "", canonical].join("\n");
   }
 
@@ -52,12 +54,18 @@ export function replaceCatalogNode(existing: string, catalog: Catalog): string {
     .join("\n");
 }
 
-/** Whether a line begins a top-level block. */
-function isBlockStart(line: string): boolean {
-  return /^[^\s#][^\n:]*:/.test(line);
-}
-
-/** The key a block begins with, or null when it carries none. */
+/**
+ * The key a line begins a top-level block with, or null when it begins none.
+ *
+ * The key must start at column 0 and not be a comment, which is what separates
+ * a real top-level block from an indented line — the body of a block scalar, a
+ * list entry, or a continuation — that merely happens to contain a colon. A
+ * quoted or space-padded key is still that block's key, so surrounding quotes
+ * and trailing whitespace are stripped before it is compared.
+ */
 function blockKey(line: string): string | null {
-  return /^([^\s#][^\n:]*):/.exec(line)?.[1] ?? null;
+  const match = /^([^\s#][^\n:]*):/.exec(line);
+  const key = match?.[1];
+  if (key === undefined) return null;
+  return key.replaceAll('"', "").replaceAll("'", "").trim();
 }

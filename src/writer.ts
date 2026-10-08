@@ -20,15 +20,29 @@ import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "n
 import { basename, dirname, join } from "node:path";
 
 /** How an atomic replace turned out. */
-export type WriteResult = { wrote: true } | { wrote: false; reason: "changed-underneath" };
+export type WriteResult =
+  | { wrote: true }
+  | { wrote: false; reason: "changed-underneath" }
+  | { wrote: false; reason: "write-failed" };
 
 /** SHA-256 of a file's bytes, or null when the file is not there to hash. */
 export function hashFile(path: string): string | null {
   try {
-    return new Bun.CryptoHasher("sha256").update(readFileSync(path, "utf8")).digest("hex");
+    return hashText(readFileSync(path, "utf8"));
   } catch {
     return null;
   }
+}
+
+/**
+ * SHA-256 of text already read.
+ *
+ * A lock token must describe the snapshot the write was prepared from, so it
+ * is hashed from that text rather than re-read from the path — re-reading
+ * would let a concurrent edit be hashed into the token and pass the re-check.
+ */
+export function hashText(text: string): string {
+  return new Bun.CryptoHasher("sha256").update(text).digest("hex");
 }
 
 /**

@@ -42,14 +42,15 @@ function exitWithUsage(): never {
 }
 
 /**
- * One report line for an Agent.
+ * The `Failed` status line for an Agent whose config could not be used.
  *
- * The state words come from the spec's output contract (§4.1): `Skipped
- * (not installed)`, `Failed`, and — when a Score was readable — `Synced` for a
- * Catalog that already equals the compiled one, otherwise `drifts in N
- * field(s)`. `Unchanged` is kept for `unis sync`, where it names the effect
- * of the write that did not happen.
+ * Reading and parsing both fail here, and the reason names which: a config
+ * that cannot be parsed is a different fault from one that cannot be read.
  */
+function failedLine(tag: string, path: string): void {
+  line("fail", tag, path, "Failed: config cannot be read or parsed");
+}
+
 function reportLine(compare: AgentCompare): void {
   const tag = compare.agent.toUpperCase();
 
@@ -58,7 +59,7 @@ function reportLine(compare: AgentCompare): void {
     return;
   }
   if (compare.state === "failed") {
-    line("fail", tag, compare.path, "Failed: config cannot be parsed");
+    failedLine(tag, compare.path);
     return;
   }
 
@@ -180,10 +181,10 @@ async function compareAgent(agent: AgentId, score: Score): Promise<AgentCompare>
     disk: countCatalog(read.catalog),
     compiled: countCatalog(compiled),
     diffs,
-    write: {
-      content: replaceCatalogNode(read.text, compiled),
-      sha256: read.sha256,
-    },
+    // omp's write path is the one that exists. pi speaks JSON with escaping the
+    // YAML splice does not do, so no write is prepared for it until its own
+    // takeover ticket lands.
+    ...(agent === "omp" ? { write: { content: replaceCatalogNode(read.text, compiled), sha256: read.sha256 } } : {}),
   };
 }
 
@@ -214,7 +215,7 @@ async function commandDiff(): Promise<number> {
       continue;
     }
     if (compare.state === "failed") {
-      line("fail", tag, compare.path, "Failed: config cannot be parsed");
+      failedLine(tag, compare.path);
       failed = true;
       continue;
     }
@@ -266,7 +267,6 @@ async function commandSync(dryRun: boolean): Promise<number> {
   for (const warning of result.warnings) writeErr(`⚠ ${warning}`);
 
   writeOut(`🎼 Unisono — one Score, two Agents in unison.`);
-  let drifting = 0;
   let failed = false;
   for (const agent of AGENT_IDS) {
     const compare = await compareAgent(agent, result.score);
@@ -277,7 +277,7 @@ async function commandSync(dryRun: boolean): Promise<number> {
       continue;
     }
     if (compare.state === "failed") {
-      line("fail", tag, compare.path, "Failed: config cannot be parsed");
+      failedLine(tag, compare.path);
       failed = true;
       continue;
     }
@@ -292,21 +292,24 @@ async function commandSync(dryRun: boolean): Promise<number> {
       continue;
     }
 
-    const write = compare.write;
-    if (write === undefined) continue;
-
-    drifting += 1;
     line("warn", tag, compare.path, `drifts in ${compare.diffs.length} field(s)`);
     for (const diff of compare.diffs) {
       writeOut(`    ${diff.at}`);
       writeOut(`      Score says  ${diff.expected}`);
       writeOut(`      on disk     ${diff.actual}`);
     }
-    if (dryRun) continue;
+    // omp's write path is the one that exists: pi speaks JSON with escaping the
+    // YAML splice does not do, so a drifting pi is reported and never written
+    // until its own takeover ticket lands.
+    if (dryRun || compare.agent !== "omp") continue;
+    const write = compare.write;
+    if (write === undefined) continue;
 
     const written = writeFile(compare.path, write.content, write.sha256);
     if (!written.wrote) {
-      errorLine(`[${tag}] ${compare.path} changed underneath this sync; nothing was written`);
+      if (written.reason === "changed-underneath") {
+        errorLine(`[${tag}] ${compare.path} changed underneath this sync; nothing was written`);
+      }
       failed = true;
       continue;
     }
@@ -325,14 +328,17 @@ async function commandSync(dryRun: boolean): Promise<number> {
  * Writes an Agent's config atomically, reporting what happened.
  *
  * The file's hash is re-checked inside the write, so a concurrent edit aborts
- * rather than being silently overwritten.
+ * with `changed-underneath` rather than being silently overwritten. A throw is
+ * a different kind of failure — a permission, a full disk — and is reported as
+ * such, so the message names the actual fault rather than implying a race that
+ * never happened.
  */
 function writeFile(path: string, content: string, sha256: string | null): WriteResult {
   try {
     return atomicWrite(path, content, sha256);
   } catch (error) {
     errorLine(`cannot write ${path}: ${error instanceof Error ? error.message : String(error)}`);
-    return { wrote: false, reason: "changed-underneath" };
+    return { wrote: false, reason: "write-failed" };
   }
 }
 
@@ -365,11 +371,13 @@ export async function main(argv: string[]): Promise<number> {
 
   switch (command) {
     case "sync": {
-      // `--dry-run` previews the same takeover without writing; any other
-      // flag is a typo the user should hear about, not silence to ignore.
-      const dryRun = argv[1] === "--dry-run";
-      if (argv[1] !== undefined && !dryRun) {
-        errorLine(`unknown flag: ${argv[1]}`);
+      // `--dry-run` previews the same takeover without writing. Any other
+      // argument is a typo the user should hear about, in any position, rather
+      // than silence the sync runs with.
+      const dryRun = argv.includes("--dry-run");
+      const unknown = argv.filter((arg) => arg.startsWith("-") && arg !== "--dry-run");
+      if (unknown.length > 0) {
+        errorLine(`unknown flag: ${unknown[0]}`);
         exitWithUsage();
       }
       return await commandSync(dryRun);
