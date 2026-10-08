@@ -138,6 +138,21 @@ describe("unis list", () => {
     expect(stdout).toContain("1 providers, 0 models");
   });
 
+  test("falls back to the default location when the Agent's env var is empty", () => {
+    const homeDir = join(root, "home");
+    mkdirSync(join(homeDir, ".omp", "agent"), { recursive: true });
+    writeFileSync(join(homeDir, ".omp", "agent", "models.yml"), "providers: {}\n");
+
+    const { stdout, exitCode } = runUnis("list", {
+      HOME: homeDir,
+      OMP_CODING_AGENT_DIR: "",
+    });
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain(`[OMP] ${homeDir}/.omp/agent/models.yml`);
+    expect(stdout).toContain("0 providers, 0 models");
+  });
+
   test("reads a pi config with comments and a trailing comma", () => {
     writeFileSync(
       join(piDir, "models.json"),

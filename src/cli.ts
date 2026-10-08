@@ -37,8 +37,8 @@ function exitWithUsage(): never {
 }
 
 function reportLine(report: AgentReport): void {
-  if (!report.installed) {
-    line("warn", report.agent.toUpperCase(), report.path, `Skipped (not installed)`);
+  if (report.state === "skipped") {
+    line("warn", report.agent.toUpperCase(), report.path, "Skipped (not installed)");
     return;
   }
   if (report.state === "failed") {

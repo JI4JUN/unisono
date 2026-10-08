@@ -15,11 +15,15 @@ export type RawConfig = Record<string, unknown>;
 
 export type Catalog = Record<string, Record<string, unknown>>;
 
-/** An Agent's on-disk state, as far as `unis list` can tell without a Score. */
+/**
+ * An Agent's on-disk state.
+ *
+ * `skipped` means the config file is absent, which is a normal supported state
+ * when only one of the two Agents is installed (spec §1.1, story 20).
+ */
 export type AgentReport = {
   agent: AgentId;
   path: string;
-  installed: boolean;
   state: "installed" | "skipped" | "failed";
   providers: number;
   models: number;
@@ -61,7 +65,7 @@ function modelsOf(provider: Record<string, unknown> | undefined): number {
 export async function inspectAgent(agent: AgentId): Promise<AgentReport> {
   const path = agentConfigPath(agent);
   if (!isAgentInstalled(agent)) {
-    return { agent, path, installed: false, state: "skipped", providers: 0, models: 0 };
+    return { agent, path, state: "skipped", providers: 0, models: 0 };
   }
 
   let config: RawConfig;
@@ -69,7 +73,7 @@ export async function inspectAgent(agent: AgentId): Promise<AgentReport> {
     config = parseConfig(agent, await Bun.file(path).text());
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    return { agent, path, installed: true, state: "failed", providers: 0, models: 0, reason };
+    return { agent, path, state: "failed", providers: 0, models: 0, reason };
   }
 
   const catalog = catalogOf(config);
@@ -77,7 +81,6 @@ export async function inspectAgent(agent: AgentId): Promise<AgentReport> {
   return {
     agent,
     path,
-    installed: true,
     state: "installed",
     providers: providers.length,
     models: providers.reduce((total, id) => total + modelsOf(catalog[id]), 0),

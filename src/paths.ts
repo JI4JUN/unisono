@@ -27,26 +27,14 @@ export type AgentId = "omp" | "pi";
 
 export const AGENT_IDS: readonly AgentId[] = ["omp", "pi"];
 
-export function isAgentId(value: string): value is AgentId {
-  return value === "omp" || value === "pi";
-}
-
 function configBase(): string {
   const xdg = Bun.env.XDG_CONFIG_HOME?.trim();
   return xdg ? `${xdg}/unisono` : `${Bun.env.HOME}/.config/unisono`;
 }
 
-/**
- * The Score's single location: `$XDG_CONFIG_HOME/unisono/score.yaml`, falling
- * back to `~/.config/unisono/score.yaml` when XDG is unset.
- */
+/** The Score's single location: `$XDG_CONFIG_HOME/unisono/score.yaml`. */
 export function scorePath(): string {
   return `${configBase()}/score.yaml`;
-}
-
-/** Where snapshots are written and looked up. */
-export function backupsDir(): string {
-  return `${configBase()}/backups`;
 }
 
 /**
@@ -55,7 +43,7 @@ export function backupsDir(): string {
  */
 export function agentBaseDir(agent: AgentId): string {
   const fromEnv = Bun.env[AGENT_DIR_ENV[agent]]?.trim();
-  return fromEnv ?? `${Bun.env.HOME}/${AGENT_DEFAULT_DIR[agent]}`;
+  return fromEnv || `${Bun.env.HOME}/${AGENT_DEFAULT_DIR[agent]}`;
 }
 
 /**
