@@ -87,6 +87,16 @@ function unknownKeys(node: Record<string, unknown>, known: Record<string, true>)
   return Object.keys(node).filter((key) => !(key in known));
 }
 
+/** A required-or-optional integer field must be a whole number above zero. */
+function checkPositiveInteger(at: string, value: unknown, report: Report): void {
+  if (value === undefined || value === null) return;
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    report.fail(`${at} must be an integer, got ${JSON.stringify(value)}`);
+  } else if (value <= 0) {
+    report.fail(`${at} must be positive, got ${JSON.stringify(value)}`);
+  }
+}
+
 /**
  * Expands `${VAR_NAME}` to the variable's value.
  *
@@ -143,7 +153,23 @@ function checkProvider(id: string, value: unknown, report: Report): void {
     );
   }
 
-  const models = value["models"];
+  if (value["name"] !== undefined && typeof value["name"] !== "string") {
+    report.fail(`${label}.name must be a string, got ${JSON.stringify(value["name"])}`);
+  }
+  if (value["baseUrl"] !== undefined && typeof value["baseUrl"] !== "string") {
+    report.fail(`${label}.baseUrl must be a string, got ${JSON.stringify(value["baseUrl"])}`);
+  }
+
+  checkModels(label, id, value["models"], report);
+}
+
+/**
+ * Checks a provider's `models` list.
+ *
+ * Called after the roster of checks that produced the node, so a provider
+ * whose models are absent has already been reported as missing.
+ */
+function checkModels(label: string, providerId: string, models: unknown, report: Report): void {
   if (models === undefined || models === null) return;
   if (!isListNode(models)) {
     report.fail(`${label}.models must be a list`);
@@ -156,13 +182,12 @@ function checkProvider(id: string, value: unknown, report: Report): void {
 
   const seen: Record<string, true> = {};
   for (const [index, entry] of models.entries()) {
-    checkModel(`${label}.models[${index}]`, index, entry, id, seen, report);
+    checkModel(`${label}.models[${index}]`, entry, providerId, seen, report);
   }
 }
 
 function checkModel(
   at: string,
-  index: number,
   entry: unknown,
   providerId: string,
   seen: Record<string, true>,
@@ -173,10 +198,13 @@ function checkModel(
     return;
   }
 
-  for (const field of ["id", "name", "contextWindow"]) {
+  for (const field of ["id", "name"]) {
     if (entry[field] === undefined || entry[field] === null) {
-      report.fail(`${at}.${field} is required (provider '${providerId}', model ${index})`);
+      report.fail(`${at}.${field} is required (provider '${providerId}')`);
     }
+  }
+  if (entry["contextWindow"] === undefined || entry["contextWindow"] === null) {
+    report.fail(`${at}.contextWindow is required (provider '${providerId}')`);
   }
 
   for (const key of unknownKeys(entry, MODEL_FIELDS)) {
@@ -189,30 +217,54 @@ function checkModel(
     seen[id] = true;
   }
 
-  for (const field of ["contextWindow", "maxTokens"]) {
+  for (const field of ["id", "name"]) {
     const value = entry[field];
-    if (value !== undefined && value !== null && !Number.isInteger(value)) {
-      report.fail(`${at}.${field} must be an integer, got ${JSON.stringify(value)}`);
-    } else if (typeof value === "number" && value <= 0) {
-      report.fail(`${at}.${field} must be positive, got ${JSON.stringify(value)}`);
+    if (value !== undefined && value !== null && typeof value !== "string") {
+      report.fail(`${at}.${field} must be a string, got ${JSON.stringify(value)}`);
     }
+  }
+  for (const field of ["contextWindow", "maxTokens"]) {
+    checkPositiveInteger(`${at}.${field}`, entry[field], report);
   }
 }
 
-/** Builds the valid Score, expanding every credential reference to plaintext. */
-function toScore(providers: Record<string, Provider>): Score {
-  const expanded: Record<string, Provider> = {};
-  for (const [id, provider] of Object.entries(providers)) {
-    expanded[id] = { ...provider, apiKey: expandKey(provider.apiKey) };
+/**
+ * Builds the valid Score from a node that has already passed every check,
+ * so each field's type is established rather than asserted.
+ */
+function toScore(version: unknown, providers: Record<string, unknown>): Score {
+  const built: Record<string, Provider> = {};
+
+  for (const [id, node] of Object.entries(providers)) {
+    const provider = node as Record<string, unknown>;
+    const models = provider["models"] as Array<Record<string, unknown>>;
+    built[id] = {
+      name: provider["name"] as string,
+      baseUrl: provider["baseUrl"] as string,
+      apiKey: expandKey(provider["apiKey"] as string),
+      apiType: provider["apiType"] as string,
+      ...(isObjectNode(provider["headers"]) ? { headers: provider["headers"] } : {}),
+      ...(isObjectNode(provider["overrides"]) ? { overrides: provider["overrides"] } : {}),
+      models: models.map((model) => ({
+        id: model["id"] as string,
+        name: model["name"] as string,
+        contextWindow: model["contextWindow"] as number,
+        ...(model["maxTokens"] !== undefined ? { maxTokens: model["maxTokens"] as number } : {}),
+        ...(model["reasoning"] !== undefined ? { reasoning: model["reasoning"] as boolean } : {}),
+        ...(isObjectNode(model["overrides"]) ? { overrides: model["overrides"] } : {}),
+      })),
+    };
   }
-  return { version: SCORE_VERSION, providers: expanded };
+
+  return { version: String(version), providers: built };
 }
 
 /**
  * Reads and checks the Score at the given path.
  *
  * Every error is collected rather than thrown, so one run reports every
- * problem instead of the first. A Score with only warnings is `ok`.
+ * problem instead of the first. A Score with only warnings is `ok`, and its
+ * credentials have been expanded to plaintext.
  */
 export async function loadScore(path = scorePath()): Promise<ScoreResult> {
   const errors: string[] = [];
@@ -257,6 +309,7 @@ export async function loadScore(path = scorePath()): Promise<ScoreResult> {
   else if (Object.keys(providers).length === 0) report.fail("providers is empty");
   else for (const [id, value] of Object.entries(providers)) checkProvider(id, value, report);
 
-  if (errors.length > 0) return { ok: false, errors, warnings };
-  return { ok: true, score: toScore(providers as Record<string, Provider>), warnings };
+  return errors.length > 0
+    ? { ok: false, errors, warnings }
+    : { ok: true, score: toScore(version, providers as Record<string, unknown>), warnings };
 }

@@ -189,6 +189,23 @@ describe("unis validate — structural failures", () => {
     }
   });
 
+  test("string fields holding non-strings are rejected", () => {
+    const cases: Array<[string, string]> = [
+      ['    name: "DeepSeek Official"\n', "    name: 42\n"],
+      ['    baseUrl: "https://api.deepseek.com/v1"\n', "    baseUrl: [not, a, url]\n"],
+      ['        name: "DeepSeek V3"\n', "        name: { nested: object }\n"],
+      ['      - id: "deepseek-chat"\n', "      - id: 7\n"],
+    ];
+    for (const [from, to] of cases) {
+      writeScore(VALID_SCORE.replace(from, to));
+
+      const { stdout, stderr, exitCode } = runValidate({ UNIS_TEST_KEY: "k" });
+
+      expect(exitCode).toBe(1);
+      expect(stdout + stderr).toContain("must be a string");
+    }
+  });
+
   test("a provider with no models is rejected", () => {
     writeScore(VALID_SCORE.replace(/      - id:[\s\S]*?contextWindow: 65536\n/, "      []\n"));
 
