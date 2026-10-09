@@ -12,7 +12,7 @@
 
 import { agentBaseDir, agentConfigPath, AGENT_IDS, configBase, scorePath, type AgentId } from "./paths";
 import { existsSync } from "node:fs";
-import { countCatalog, inspectAgent, readCatalog, type AgentReport } from "./agent";
+import { countCatalog, readCatalog } from "./agent";
 import { loadScore, type Score } from "./score";
 import { compileCatalog } from "./compiler";
 import { replaceCatalogNode } from "./sync";
@@ -20,13 +20,11 @@ import { escapePiCatalog, replacePiCatalogNode } from "./pi-write";
 import { atomicWrite, type WriteResult } from "./writer";
 import {
   listSnapshots,
-  readManifest,
   restoreSnapshot,
   rotateSnapshots,
   RETAINED_SNAPSHOTS,
   snapshotDir,
   takeSnapshot,
-  type SnapshotEntry,
 } from "./backup";
 import { diffCatalog, doomedProviders, type CatalogDiff } from "./merger";
 import { formatDangling, ompDanglingReferences, piDanglingReferences } from "./dangling";
@@ -65,34 +63,71 @@ function failedLine(tag: string, path: string): void {
   line("fail", tag, path, "Failed: config cannot be read or parsed");
 }
 
-function reportLine(compare: AgentCompare): void {
+/**
+ * Reports one Agent's comparison, and says whether it needs writing.
+ *
+ * Both `unis diff` and `unis sync` open with the same per-Agent pass: read,
+ * compare, print. The wording of a state is one decision, not two — a run that
+ * says `Unchanged` for a Catalog another command calls `Synced` is a bug in
+ * the output, not in the state. So the printing lives here and the two
+ * commands differ only in what they do with the answer.
+ *
+ * The two spellings of the equal state are the one difference: `unis list`
+ * reports `Synced` (spec §4.1 lists both words), because it answers "is this
+ * Agent in the state the Score describes", while `unis diff` and `unis sync`
+ * report `Unchanged`, because they answer "would a write change anything".
+ *
+ * The three states that carry no comparison are the ones a report cannot make
+ * a claim about: `skipped` (not installed), `failed` (unreadable), and
+ * `uncomparable` (no Score to compare against). `drifts` prints the
+ * differences themselves, masked.
+ *
+ * Returns whether this Agent still needs a write, so the caller does not
+ * re-derive it from the state words.
+ */
+function reportCompare(compare: AgentCompare, equalWord: "Synced" | "Unchanged"): {
+  writable: boolean;
+  failed: boolean;
+} {
   const tag = compare.agent.toUpperCase();
 
   if (compare.state === "skipped") {
     line("warn", tag, compare.path, "Skipped (not installed)");
-    return;
+    return { writable: false, failed: false };
   }
   if (compare.state === "failed") {
     failedLine(tag, compare.path);
-    return;
+    return { writable: false, failed: true };
+  }
+  if (compare.state === "uncomparable") {
+    const counts = compare.disk;
+    line("warn", tag, compare.path, `${counts.providers} providers, ${counts.models} models`);
+    return { writable: false, failed: false };
   }
 
   const counts = compare.disk;
-  if (compare.state === "uncomparable") {
-    line("warn", tag, compare.path, `${counts.providers} providers, ${counts.models} models`);
-    return;
+  if (compare.state === "synced") {
+    line(
+      "ok",
+      tag,
+      compare.path,
+      `${equalWord} (${compare.compiled.providers} providers, ${compare.compiled.models} models)`,
+    );
+    return { writable: false, failed: false };
   }
 
-  if (compare.state === "synced") {
-    line("ok", tag, compare.path, `Synced (${counts.providers} providers, ${counts.models} models)`);
-    return;
-  }
   line(
     "warn",
     tag,
     compare.path,
     `drifts in ${compare.diffs.length} field(s) (${counts.providers} providers, ${counts.models} models)`,
   );
+  for (const diff of compare.diffs) {
+    writeOut(`    ${diff.at}`);
+    writeOut(`      Score says  ${diff.expected}`);
+    writeOut(`      on disk     ${diff.actual}`);
+  }
+  return { writable: true, failed: false };
 }
 
 /**
@@ -102,13 +137,32 @@ function reportLine(compare: AgentCompare): void {
  * line reports presence, parse failure, and size — what `unis list` reported
  * before a compare existed. `uncomparable` deliberately does not say the
  * Agent is in sync; no comparison was made.
+ *
+ * Built from the same `readCatalog` every other command reads through, so a
+ * config this command reports as parseable is one `unis diff` would parse the
+ * same way. A second read path here would be a second opinion about what is on
+ * disk, and the two would drift.
  */
-function countOnly(report: AgentReport): AgentCompare {
+async function countOnly(agent: AgentId): Promise<AgentCompare> {
+  const read = await readCatalog(agent);
+  if (!read.ok) {
+    return {
+      agent,
+      path: read.path,
+      state: read.reason === "not installed" ? "skipped" : "failed",
+      disk: { providers: 0, models: 0 },
+      compiled: { providers: 0, models: 0 },
+      diffs: [],
+      doomed: {},
+    };
+  }
+
+  const counts = countCatalog(read.catalog);
   return {
-    agent: report.agent,
-    path: report.path,
-    state: report.state === "skipped" ? "skipped" : report.state === "failed" ? "failed" : "uncomparable",
-    disk: { providers: report.providers, models: report.models },
+    agent,
+    path: read.path,
+    state: "uncomparable",
+    disk: counts,
     compiled: { providers: 0, models: 0 },
     diffs: [],
     doomed: {},
@@ -173,8 +227,6 @@ type AgentCompare = {
   diffs: CatalogDiff[];
   /** Providers a takeover would delete, empty unless the state is `drifts`. */
   doomed: Record<string, string[]>;
-  /** The takeover content to write, when there is anything to take over. */
-  write?: { content: string; sha256: string | null };
 };
 
 /** Compares one Agent's Catalog against the Score's, reporting rather than throwing. */
@@ -204,33 +256,14 @@ async function compareAgent(agent: AgentId, score: Score): Promise<AgentCompare>
   const asOnDisk = agent === "pi" ? escapePiCatalog(compiled) : compiled;
   const diffs = diffCatalog(asOnDisk, read.catalog);
   const doomed = doomedProviders(asOnDisk, read.catalog);
-  if (diffs.length === 0) {
-    return {
-      agent,
-      path: read.path,
-      state: "synced",
-      disk: countCatalog(read.catalog),
-      compiled: countCatalog(compiled),
-      diffs,
-      doomed,
-    };
-  }
-
   return {
     agent,
     path: read.path,
-    state: "drifts",
+    state: diffs.length === 0 ? "synced" : "drifts",
     disk: countCatalog(read.catalog),
     compiled: countCatalog(compiled),
     diffs,
     doomed,
-    // omp splices its text so its own formatting survives; pi is parsed and
-    // re-serialized, because its JSONC comments and trailing commas have no
-    // text-splice equivalence. Both produce the same compiled Catalog, which
-    // is what makes the two Agents' results semantically equal.
-    ...(agent === "omp"
-      ? { write: { content: replaceCatalogNode(read.text, compiled), sha256: read.sha256 } }
-      : { write: { content: replacePiCatalogNode(read.text, compiled), sha256: read.sha256 } }),
   };
 }
 
@@ -253,36 +286,12 @@ async function commandDiff(): Promise<number> {
   let drifting = 0;
   let failed = false;
   for (const agent of AGENT_IDS) {
-    const compare = await compareAgent(agent, result.score);
-    const tag = agent.toUpperCase();
-
-    if (compare.state === "skipped") {
-      line("warn", tag, compare.path, "Skipped (not installed)");
-      continue;
-    }
-    if (compare.state === "failed") {
-      failedLine(tag, compare.path);
-      failed = true;
-      continue;
-    }
-
-    if (compare.state === "synced") {
-      line(
-        "ok",
-        tag,
-        compare.path,
-        `Unchanged (${compare.compiled.providers} providers, ${compare.compiled.models} models)`,
-      );
-      continue;
-    }
-
-    drifting += 1;
-    line("warn", tag, compare.path, `drifts in ${compare.diffs.length} field(s)`);
-    for (const diff of compare.diffs) {
-      writeOut(`    ${diff.at}`);
-      writeOut(`      Score says  ${diff.expected}`);
-      writeOut(`      on disk     ${diff.actual}`);
-    }
+    const reported = reportCompare(await compareAgent(agent, result.score), "Unchanged");
+    failed = failed || reported.failed;
+    // Only a drifting Agent makes this command's closing line false, so the
+    // count is of writable ones — the states that carry no comparison cannot
+    // be drifting, because nothing was compared.
+    if (reported.writable) drifting += 1;
   }
 
   if (drifting === 0 && !failed) {
@@ -324,43 +333,16 @@ async function commandSync(dryRun: boolean, yes: boolean): Promise<number> {
   const writable: AgentCompare[] = [];
   for (const agent of AGENT_IDS) {
     const compare = await compareAgent(agent, result.score);
-    const tag = agent.toUpperCase();
-
-    if (compare.state === "skipped") {
-      line("warn", tag, compare.path, "Skipped (not installed)");
-      continue;
-    }
-    if (compare.state === "failed") {
-      failedLine(tag, compare.path);
-      failed = true;
-      continue;
-    }
-
-    if (compare.state === "synced") {
-      line(
-        "ok",
-        tag,
-        compare.path,
-        `Unchanged (${compare.compiled.providers} providers, ${compare.compiled.models} models)`,
-      );
-      continue;
-    }
-
-    line("warn", tag, compare.path, `drifts in ${compare.diffs.length} field(s)`);
-    for (const diff of compare.diffs) {
-      writeOut(`    ${diff.at}`);
-      writeOut(`      Score says  ${diff.expected}`);
-      writeOut(`      on disk     ${diff.actual}`);
-    }
-
-    const doomedIds = Object.keys(compare.doomed);
-    if (doomedIds.length > 0) {
-      gated.push(`${tag}: ${listDoomed(compare.doomed)}`);
-    }
+    const reported = reportCompare(compare, "Unchanged");
+    failed = failed || reported.failed;
     // A doomed Agent is written too when the gate is passed, because the
     // deletion is exactly what `--yes` confirms — so refusing to write it would
     // make the flag meaningless. The gate below decides whether this proceeds.
-    writable.push(compare);
+    if (reported.writable) {
+      const doomedIds = Object.keys(compare.doomed);
+      if (doomedIds.length > 0) gated.push(`${agent.toUpperCase()}: ${listDoomed(compare.doomed)}`);
+      writable.push(compare);
+    }
   }
 
   // `--dry-run` only previews, so it reports the deletions without demanding
@@ -382,10 +364,11 @@ async function commandSync(dryRun: boolean, yes: boolean): Promise<number> {
   // is the user's setting, and the takeover replaces only a Catalog.
   for (const warning of danglingWarnings(result.score)) writeErr(`⚠ ${warning}`);
 
-  // Phase two writes. Both Agents have a write path now: omp splices its YAML
-  // text, and `compareAgent` serializes pi's JSONC into standard two-space
-  // JSON with `!`/`$` escaping, so both are expressed as a `write` here.
-  const targets = writable.filter((compare) => !dryRun && compare.write !== undefined);
+  // Phase two writes. The takeover content is built here rather than in
+  // `compareAgent`, because a comparison is what `unis diff` and `unis list`
+  // also want and they never write: splicing every drifting Catalog for them
+  // would be work thrown away. Only this command pays for it.
+  const targets = writable.filter((compare) => !dryRun);
 
   // The snapshot is taken before the first write, so the files it holds are the
   // ones a rollback must put back — never the ones this sync is replacing. An
@@ -410,9 +393,22 @@ async function commandSync(dryRun: boolean, yes: boolean): Promise<number> {
   }
 
   for (const compare of targets) {
-    const write = compare.write;
-    if (write === undefined) continue;
-    const written = writeFile(compare.path, write.content, write.sha256);
+    // omp splices its text so its own formatting survives; pi is parsed and
+    // re-serialized, because its JSONC comments and trailing commas have no
+    // text-splice equivalence. Both produce the same compiled Catalog, which
+    // is what makes the two Agents' results semantically equal.
+    const read = await readCatalog(compare.agent);
+    if (!read.ok) {
+      failedLine(compare.agent.toUpperCase(), compare.path);
+      failed = true;
+      continue;
+    }
+    const compiled = compileCatalog(result.score, compare.agent);
+    const content =
+      compare.agent === "omp"
+        ? replaceCatalogNode(read.text, compiled)
+        : replacePiCatalogNode(read.text, compiled);
+    const written = writeFile(compare.path, content, read.sha256);
     if (!written.wrote) {
       if (written.reason === "changed-underneath") {
         errorLine(`[${compare.agent.toUpperCase()}] ${compare.path} changed underneath this sync; nothing was written`);
@@ -497,11 +493,13 @@ async function commandList(): Promise<number> {
   const scoreResult = await loadScore(scorePath());
   if (!scoreResult.ok) {
     writeErr(`⚠ [Score] not comparable: ${scoreResult.errors[0]}`);
-    for (const agent of AGENT_IDS) reportLine(countOnly(await inspectAgent(agent)));
+    for (const agent of AGENT_IDS) reportCompare(await countOnly(agent), "Synced");
     return 0;
   }
 
-  for (const agent of AGENT_IDS) reportLine(await compareAgent(agent, scoreResult.score));
+  for (const agent of AGENT_IDS) {
+    reportCompare(await compareAgent(agent, scoreResult.score), "Synced");
+  }
   return 0;
 }
 
@@ -613,14 +611,12 @@ async function commandRollback(args: string[]): Promise<number> {
   }
 
   try {
-    for (const id of restoreSnapshot(base, stamp)) {
-      const entry = manifestEntry(base, stamp, id);
-      if (entry === undefined) continue;
+    for (const entry of restoreSnapshot(base, stamp)) {
       if (entry.backed === undefined) {
-        line("ok", id.toUpperCase(), entry.from, "Removed (did not exist before the sync)");
+        line("ok", entry.id.toUpperCase(), entry.from, "Removed (did not exist before the sync)");
         continue;
       }
-      line("ok", id.toUpperCase(), entry.from, "Restored");
+      line("ok", entry.id.toUpperCase(), entry.from, "Restored");
     }
   } catch (error) {
     errorLine(error instanceof Error ? error.message : String(error));
@@ -628,12 +624,6 @@ async function commandRollback(args: string[]): Promise<number> {
   }
   writeOut(`✨ Rolled back to ${stamp}`);
   return 0;
-}
-
-/** One Agent's manifest entry, so a restore line can report what it did. */
-function manifestEntry(base: string, stamp: string, id: string): SnapshotEntry | undefined {
-  const manifest = readManifest(base, stamp);
-  return manifest?.entries[id];
 }
 
 export async function main(argv: string[]): Promise<number> {

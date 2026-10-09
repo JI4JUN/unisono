@@ -55,18 +55,6 @@
       "skillPath": "skills/pr-review-handler/SKILL.md",
       "computedHash": "574821a14aabde5075eda31681f89a461714fe6e014958f0f82af14d2637e6fc"
     },
-    "react-patterns": {
-      "source": "affaan-m/ecc",
-      "sourceType": "github",
-      "skillPath": "skills/react-patterns/SKILL.md",
-      "computedHash": "44d2c6304ff7ea20643a0203b74de9c7a42e1f70a2b73a5762500dea385dfc44"
-    },
-    "react-performance": {
-      "source": "affaan-m/ecc",
-      "sourceType": "github",
-      "skillPath": "skills/react-performance/SKILL.md",
-      "computedHash": "7b5b19e9c15a6b442fa0e7a0a1cb7ced951ab5872a96ff876b099b6bdfc9ae86"
-    },
     "tdd": {
       "source": "mattpocock/skills",
       "sourceType": "github",
@@ -84,12 +72,6 @@
       "sourceType": "github",
       "skillPath": "skills/engineering/to-tickets/SKILL.md",
       "computedHash": "bf5e6ebcb4f1272de0c188d5b3901f265a03d1fa9935a21a7a56938e21e2e761"
-    },
-    "vercel-react-best-practices": {
-      "source": "vercel-labs/agent-skills",
-      "sourceType": "github",
-      "skillPath": "skills/react-best-practices/SKILL.md",
-      "computedHash": "ca7b0c0c6e5f2750043f7f0cd72d16ac4e2abc48f9b5500d047a4b77a2506212"
     }
   }
 }

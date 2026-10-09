@@ -2,57 +2,22 @@
  * `unis import` — asserted through the CLI subprocess seam the spec mandates:
  * the real binary against a per-test temporary tree, with the written Score,
  * its validation, and the files it leaves behind as the observable surface.
- *
- * The import is the reverse of the compile, so its proof is a round-trip: take
- * an Agent's Catalog, import it, sync it back, and compare. The comparison is
- * semantic, which is what lets the import change the serialization without
- * changing what the two sides say.
+ * The seam itself, the sandbox, and the per-test teardown come from
+ * `test/harness.ts`.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { runUnis, useSandbox, type Sandbox } from "./harness";
 
-const ENTRY = join(import.meta.dir, "..", "src", "cli.ts");
-
-let root: string;
-let configDir: string;
-let ompDir: string;
-let piDir: string;
-
-const scorePath = () => join(configDir, "unisono", "score.yaml");
-const ompPath = () => join(ompDir, "models.yml");
-const piPath = () => join(piDir, "models.json");
-
-function runUnis(
-  args: string[],
-  env: Record<string, string> = {},
-): { stdout: string; stderr: string; exitCode: number } {
-  const result = Bun.spawnSync({
-    cmd: [process.execPath, ENTRY, ...args],
-    env: {
-      HOME: root,
-      XDG_CONFIG_HOME: configDir,
-      OMP_CODING_AGENT_DIR: ompDir,
-      PI_CODING_AGENT_DIR: piDir,
-      NO_COLOR: "1",
-      PATH: process.env.PATH ?? "",
-      ...env,
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return {
-    stdout: result.stdout.toString(),
-    stderr: result.stderr.toString(),
-    exitCode: result.exitCode ?? -1,
-  };
-}
+const sandbox: Sandbox = useSandbox();
+const ompPath = () => join(sandbox.ompDir, "models.yml");
+const piPath = () => join(sandbox.piDir, "models.json");
 
 function writeScore(text: string): void {
-  mkdirSync(join(configDir, "unisono"), { recursive: true });
-  writeFileSync(scorePath(), text);
+  mkdirSync(join(sandbox.configDir, "unisono"), { recursive: true });
+  writeFileSync(sandbox.scorePath, text);
 }
 
 /**
@@ -100,20 +65,6 @@ providers:
         contextWindow: 200000
 `;
 
-beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "unis-import-"));
-  configDir = join(root, "config");
-  ompDir = join(root, "omp", "agent");
-  piDir = join(root, "pi", "agent");
-  mkdirSync(ompDir, { recursive: true });
-  mkdirSync(piDir, { recursive: true });
-  mkdirSync(join(configDir, "unisono"), { recursive: true });
-});
-
-afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
-});
-
 /**
  * Narrows a parsed document to a map before reading a key out of it.
  *
@@ -149,7 +100,7 @@ function asList(value: unknown): unknown[] {
 
 /** The parsed imported Score. */
 function scoreDocument(): Record<string, unknown> {
-  return asMap(Bun.YAML.parse(readFileSync(scorePath(), "utf8")));
+  return asMap(Bun.YAML.parse(readFileSync(sandbox.scorePath, "utf8")));
 }
 
 /** The `providers` map of the imported Score. */
@@ -189,7 +140,7 @@ describe("unis import — reverse Score generation", () => {
   test("imports omp's Catalog into a Score naming the same providers and models", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
-    const { exitCode } = runUnis(["import", "omp"]);
+    const { exitCode } = runUnis(sandbox, ["import", "omp"]);
 
     expect(exitCode).toBe(0);
     const providers = scoreProviders();
@@ -241,7 +192,7 @@ describe("unis import — reverse Score generation", () => {
       ),
     );
 
-    const { exitCode } = runUnis(["import", "pi"]);
+    const { exitCode } = runUnis(sandbox, ["import", "pi"]);
 
     expect(exitCode).toBe(0);
     expect(Object.keys(scoreProviders())).toEqual(["deepseek", "shellish"]);
@@ -251,7 +202,7 @@ describe("unis import — reverse Score generation", () => {
   test("hoists a field the common schema cannot express into overrides.omp", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
-    runUnis(["import", "omp"]);
+    runUnis(sandbox, ["import", "omp"]);
 
     const reasoning = asMap(asList(providerInScore("deepseek")["models"])[1]);
     // The model's own fields go where the Score puts them; the rest is omp's,
@@ -296,7 +247,7 @@ describe("unis import — reverse Score generation", () => {
       ].join("\n"),
     );
 
-    expect(runUnis(["import", "omp"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["import", "omp"]).exitCode).toBe(0);
 
     expect(providerInScore("deepseek")["headers"]).toEqual({
       "X-Token": "$$secret",
@@ -323,7 +274,7 @@ describe("unis import — reverse Score generation", () => {
       ].join("\n"),
     );
 
-    runUnis(["import", "omp"]);
+    runUnis(sandbox, ["import", "omp"]);
 
     expect(providerInScore("deepseek")).not.toHaveProperty("apiKeyRole");
     expect(providerOverride("deepseek", "omp")).toEqual({ apiKeyRole: "deploy" });
@@ -346,7 +297,7 @@ describe("unis import — reverse Score generation", () => {
       }),
     );
 
-    runUnis(["import", "pi"]);
+    runUnis(sandbox, ["import", "pi"]);
 
     expect(providerOverride("pi", "omp")).toEqual({});
     expect(providerOverride("pi", "pi")).toEqual({ piOnly: { nested: true } });
@@ -356,7 +307,7 @@ describe("unis import — reverse Score generation", () => {
   test("preserves headers and the standard fields as Score fields", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
-    runUnis(["import", "omp"]);
+    runUnis(sandbox, ["import", "omp"]);
 
     expect(providerInScore("deepseek")["headers"]).toEqual({ "User-Agent": "Unisono-Sync/1.0" });
     const chat = asMap(asList(providerInScore("deepseek")["models"])[0]);
@@ -366,8 +317,8 @@ describe("unis import — reverse Score generation", () => {
   test("does not inline the credential it found into the draft", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
-    runUnis(["import", "omp"]);
-    const text = readFileSync(scorePath(), "utf8");
+    runUnis(sandbox, ["import", "omp"]);
+    const text = readFileSync(sandbox.scorePath, "utf8");
 
     // The import's purpose is a draft, and a Score is committed and shared. The
     // key on disk is already plaintext, so inlining it would make the Source of
@@ -379,9 +330,9 @@ describe("unis import — reverse Score generation", () => {
   test("a generated Score passes unis validate once its variable is exported", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
-    expect(runUnis(["import", "omp"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["import", "omp"]).exitCode).toBe(0);
 
-    const validated = runUnis(["validate"], {
+    const validated = runUnis(sandbox, ["validate"], {
       DEEPSEEK_API_KEY: "sk-omp-key-87654321",
       ANTHROPIC_API_KEY: "sk-omp-ant-12345678",
     });
@@ -392,23 +343,23 @@ describe("unis import — reverse Score generation", () => {
   test("reports the variable name a missing credential needs", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
-    expect(runUnis(["import", "omp"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["import", "omp"]).exitCode).toBe(0);
 
     // The validation failure names the variable, so the reader knows what to
     // export rather than that something was unset.
-    const unset = runUnis(["validate"]);
+    const unset = runUnis(sandbox, ["validate"]);
     expect(unset.exitCode).toBe(1);
     expect(unset.stdout + unset.stderr).toContain("DEEPSEEK_API_KEY");
   });
 
   test("import into a Score path that does not exist yet works", () => {
-    expect(existsSync(scorePath())).toBe(false);
+    expect(existsSync(sandbox.scorePath)).toBe(false);
 
     writeFileSync(ompPath(), OMP_FIXTURE);
-    const { exitCode } = runUnis(["import", "omp"]);
+    const { exitCode } = runUnis(sandbox, ["import", "omp"]);
 
     expect(exitCode).toBe(0);
-    expect(existsSync(scorePath())).toBe(true);
+    expect(existsSync(sandbox.scorePath)).toBe(true);
   });
 
   test("refuses to overwrite a Score that already exists", () => {
@@ -424,24 +375,24 @@ providers:
         name: "M"
         contextWindow: 4096
 `);
-    const guarded = readFileSync(scorePath(), "utf8");
+    const guarded = readFileSync(sandbox.scorePath, "utf8");
 
     writeFileSync(ompPath(), OMP_FIXTURE);
-    const { stdout, stderr, exitCode } = runUnis(["import", "omp"]);
+    const { stdout, stderr, exitCode } = runUnis(sandbox, ["import", "omp"]);
 
     expect(exitCode).toBe(1);
     expect(stdout + stderr).toContain("already exists");
     // The existing Score is untouched, not truncated and not merged into.
-    expect(readFileSync(scorePath(), "utf8")).toBe(guarded);
+    expect(readFileSync(sandbox.scorePath, "utf8")).toBe(guarded);
   });
 
   test("round-trips omp: import then sync leaves the Catalog semantically equal", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
-    expect(runUnis(["import", "omp"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["import", "omp"]).exitCode).toBe(0);
     const before = catalogOfAgent(ompPath());
 
-    const synced = runUnis(["sync", "--yes"], {
+    const synced = runUnis(sandbox, ["sync", "--yes"], {
       DEEPSEEK_API_KEY: "sk-omp-key-87654321",
       ANTHROPIC_API_KEY: "sk-omp-ant-12345678",
     });
@@ -470,9 +421,9 @@ providers:
     };
     writeFileSync(piPath(), JSON.stringify(catalog, null, 2));
 
-    expect(runUnis(["import", "pi"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["import", "pi"]).exitCode).toBe(0);
 
-    const synced = runUnis(["sync", "--yes"], { PI_API_KEY: "sk-pi-key-12345678" });
+    const synced = runUnis(sandbox, ["sync", "--yes"], { PI_API_KEY: "sk-pi-key-12345678" });
     expect(synced.exitCode).toBe(0);
     // The model's `piSecret` is not a Score field, so it rode through as
     // `overrides.pi` — and it comes back escaped on disk, which is the form pi
@@ -492,7 +443,7 @@ providers:
   test("an imported Score is not automatically synced", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
-    expect(runUnis(["import", "omp"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["import", "omp"]).exitCode).toBe(0);
 
     // The import writes a draft. A takeover is a deliberate, confirmed step,
     // so an import alone must not touch either Agent's config.
@@ -517,7 +468,7 @@ providers:
       ].join("\n"),
     );
 
-    const { stdout, stderr, exitCode } = runUnis(["import", "omp"]);
+    const { stdout, stderr, exitCode } = runUnis(sandbox, ["import", "omp"]);
 
     expect(exitCode).toBe(1);
     expect(stdout + stderr).toContain("empty");
@@ -543,16 +494,16 @@ providers:
       ].join("\n"),
     );
 
-    const { stdout, stderr, exitCode } = runUnis(["import", "omp"]);
+    const { stdout, stderr, exitCode } = runUnis(sandbox, ["import", "omp"]);
 
     expect(exitCode).toBe(1);
     expect(stdout + stderr).toContain("deepseek");
     // Nothing is written when the draft cannot be expressed at all.
-    expect(existsSync(scorePath())).toBe(false);
+    expect(existsSync(sandbox.scorePath)).toBe(false);
   });
 
   test("an Agent that is not installed cannot be imported", () => {
-    const { stdout, stderr, exitCode } = runUnis(["import", "pi"]);
+    const { stdout, stderr, exitCode } = runUnis(sandbox, ["import", "pi"]);
 
     expect(exitCode).toBe(1);
     expect(stdout + stderr).toContain("not installed");
@@ -561,7 +512,7 @@ providers:
   test("names the Agent that was not imported, rather than leaving it silent", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
-    const { stdout, stderr, exitCode } = runUnis(["import", "omp"]);
+    const { stdout, stderr, exitCode } = runUnis(sandbox, ["import", "omp"]);
 
     expect(exitCode).toBe(0);
     // One Score, two Agents: importing omp says so about pi, because a user
@@ -574,9 +525,9 @@ providers:
   test("writes the Score with 0600, because it holds credential references", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
-    runUnis(["import", "omp"]);
+    runUnis(sandbox, ["import", "omp"]);
 
-    const mode = statSync(scorePath()).mode & 0o777;
+    const mode = statSync(sandbox.scorePath).mode & 0o777;
     expect(mode).toBe(0o600);
   });
 });

@@ -12,56 +12,23 @@
  * rollback), the whole-run timing, and the exit codes.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { runUnis, useSandbox, type Sandbox } from "./harness";
 
-const ENTRY = join(import.meta.dir, "..", "src", "cli.ts");
-
-let root: string;
-let configDir: string;
-let ompDir: string;
-let piDir: string;
-
-const scorePath = () => join(configDir, "unisono", "score.yaml");
-const backupsDir = () => join(configDir, "unisono", "backups");
-const ompPath = () => join(ompDir, "models.yml");
-const piPath = () => join(piDir, "models.json");
-
-function runUnis(
-  args: string[],
-  env: Record<string, string> = {},
-): { stdout: string; stderr: string; exitCode: number } {
-  const result = Bun.spawnSync({
-    cmd: [process.execPath, ENTRY, ...args],
-    env: {
-      HOME: root,
-      XDG_CONFIG_HOME: configDir,
-      OMP_CODING_AGENT_DIR: ompDir,
-      PI_CODING_AGENT_DIR: piDir,
-      NO_COLOR: "1",
-      PATH: process.env.PATH ?? "",
-      ...env,
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return {
-    stdout: result.stdout.toString(),
-    stderr: result.stderr.toString(),
-    exitCode: result.exitCode ?? -1,
-  };
-}
+const sandbox: Sandbox = useSandbox();
+const ompPath = () => join(sandbox.ompDir, "models.yml");
+const piPath = () => join(sandbox.piDir, "models.json");
 
 function writeScore(text: string): void {
-  mkdirSync(join(configDir, "unisono"), { recursive: true });
-  writeFileSync(scorePath(), text);
+  writeFileSync(sandbox.scorePath, text);
 }
 
 /** Directory names of the retained snapshots. */
 function snapshotStamps(): string[] {
-  return existsSync(backupsDir()) ? readdirSync(backupsDir()) : [];
+  return existsSync(sandbox.backupsDir) ? readdirSync(sandbox.backupsDir) : [];
 }
 
 /**
@@ -192,8 +159,8 @@ providers:
 
 /** Both Agents installed, each holding one node outside its Catalog. */
 function installBothAgents(): void {
-  mkdirSync(ompDir, { recursive: true });
-  mkdirSync(piDir, { recursive: true });
+  mkdirSync(sandbox.ompDir, { recursive: true });
+  mkdirSync(sandbox.piDir, { recursive: true });
   writeFileSync(ompPath(), "modelOverrides:\n  role: hand\n");
   writeFileSync(
     piPath(),
@@ -206,26 +173,12 @@ function installBothAgents(): void {
   );
 }
 
-beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "unis-e2e-"));
-  configDir = join(root, "config");
-  ompDir = join(root, "omp", "agent");
-  piDir = join(root, "pi", "agent");
-  mkdirSync(ompDir, { recursive: true });
-  mkdirSync(piDir, { recursive: true });
-  mkdirSync(join(configDir, "unisono"), { recursive: true });
-});
-
-afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
-});
-
 describe("end-to-end contract", () => {
   test("one sync leaves both Catalogs semantically equal and every other byte unchanged", () => {
     writeScore(EXAMPLE_SCORE);
     installBothAgents();
 
-    const { exitCode } = runUnis(["sync", "--yes"]);
+    const { exitCode } = runUnis(sandbox, ["sync", "--yes"]);
 
     expect(exitCode).toBe(0);
     // Semantically equal for the fields both Agents carry: parsed and compared,
@@ -263,12 +216,12 @@ describe("end-to-end contract", () => {
     writeScore(EXAMPLE_SCORE);
     installBothAgents();
 
-    expect(runUnis(["sync", "--yes"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["sync", "--yes"]).exitCode).toBe(0);
     const ompMtime = statSync(ompPath()).mtimeMs;
     const piMtime = statSync(piPath()).mtimeMs;
     const taken = snapshotStamps();
 
-    const second = runUnis(["sync", "--yes"]);
+    const second = runUnis(sandbox, ["sync", "--yes"]);
 
     expect(second.exitCode).toBe(0);
     const unchanged = second.stdout.match(/Unchanged/g) ?? [];
@@ -282,7 +235,7 @@ describe("end-to-end contract", () => {
   test("a reordered but semantically equivalent Catalog still reports Unchanged", () => {
     writeScore(EXAMPLE_SCORE);
     installBothAgents();
-    expect(runUnis(["sync", "--yes"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["sync", "--yes"]).exitCode).toBe(0);
 
     // The same Catalog rewritten with its providers in the other order and its
     // blocks re-emitted at two-space indent. Nothing about what it says
@@ -300,7 +253,7 @@ describe("end-to-end contract", () => {
     );
     writeFileSync(ompPath(), rewritten);
 
-    const second = runUnis(["sync"]);
+    const second = runUnis(sandbox, ["sync"]);
 
     expect(second.exitCode).toBe(0);
     expect(second.stdout).toContain("Unchanged");
@@ -323,7 +276,7 @@ describe("end-to-end contract", () => {
 
     for (const [want, score] of classes) {
       writeScore(score);
-      const result = runUnis(["validate"]);
+      const result = runUnis(sandbox, ["validate"]);
       // The failure exit code, and the report names the field or variable that
       // caused it — a run that exited 1 saying nothing is not a run a user can
       // act on.
@@ -337,7 +290,7 @@ describe("end-to-end contract", () => {
     // nothing else is valid — that is the one case exit 0 has to hold.
     writeScore(EXAMPLE_SCORE.replace('    apiType: "openai-completions"\n', '    apiType: "openai-completions"\n    extraField: "typo"\n'));
 
-    const result = runUnis(["validate"]);
+    const result = runUnis(sandbox, ["validate"]);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("valid");
@@ -349,14 +302,14 @@ describe("end-to-end contract", () => {
     writeFileSync(ompPath(), `providers:\n  hand-written:\n    name: "Hand Written"\n    baseUrl: "https://x/v1"\n    apiKey: "sk-h"\n    api: "openai-completions"\n    models:\n      - id: "m"\n        name: "M"\n        contextWindow: 4096\n`);
     const guarded = readFileSync(ompPath(), "utf8");
 
-    const refused = runUnis(["sync"]);
+    const refused = runUnis(sandbox, ["sync"]);
 
     expect(refused.exitCode).toBe(2);
     expect(refused.stdout + refused.stderr).toContain("hand-written");
     expect(readFileSync(ompPath(), "utf8")).toBe(guarded);
     expect(snapshotStamps()).toHaveLength(0);
 
-    const confirmed = runUnis(["sync", "--yes"]);
+    const confirmed = runUnis(sandbox, ["sync", "--yes"]);
 
     expect(confirmed.exitCode).toBe(0);
     expect(snapshotStamps()).toHaveLength(1);
@@ -368,12 +321,12 @@ describe("end-to-end contract", () => {
     const ompBefore = readFileSync(ompPath(), "utf8");
     const piBefore = readFileSync(piPath(), "utf8");
 
-    expect(runUnis(["sync", "--yes"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["sync", "--yes"]).exitCode).toBe(0);
     // A takeover did what it is for: the Catalog is the Score's now, so there
     // is something to roll back from.
     expect(Object.keys(catalogOf(ompPath()))).toContain("deepseek");
 
-    const rolled = runUnis(["rollback"]);
+    const rolled = runUnis(sandbox, ["rollback"]);
 
     expect(rolled.exitCode).toBe(0);
     // Both Agents, back to the bytes they held before — not just the Catalog.
@@ -389,15 +342,15 @@ describe("end-to-end contract", () => {
     // which is not the config the takeover rewrites. omp's `modelRoles` and
     // `enabledModels` name the same one, in `config.yml`.
     writeFileSync(
-      join(piDir, "settings.json"),
+      join(sandbox.piDir, "settings.json"),
       JSON.stringify({ defaultProvider: "absent", defaultModel: "absent/m" }),
     );
     writeFileSync(
-      join(ompDir, "config.yml"),
+      join(sandbox.ompDir, "config.yml"),
       ["modelRoles:", "  fast: absent/deepseek-chat", "enabledModels:", "  - absent/x", ""].join("\n"),
     );
 
-    const result = runUnis(["sync", "--yes"]);
+    const result = runUnis(sandbox, ["sync", "--yes"]);
 
     expect(result.exitCode).toBe(0);
     // Both Agents' dangling forms are reported, in one run. A `modelRoles` map
@@ -411,10 +364,10 @@ describe("end-to-end contract", () => {
     expect(result.stdout + result.stderr).toContain("enabledModels references removed provider 'absent'");
     // A warning is the whole report: the settings are the user's, and the
     // takeover replaces only a Catalog. So the sibling files are untouched.
-    expect(readFileSync(join(piDir, "settings.json"), "utf8")).toBe(
+    expect(readFileSync(join(sandbox.piDir, "settings.json"), "utf8")).toBe(
       JSON.stringify({ defaultProvider: "absent", defaultModel: "absent/m" }),
     );
-    expect(readFileSync(join(ompDir, "config.yml"), "utf8")).toContain("modelRoles");
+    expect(readFileSync(join(sandbox.ompDir, "config.yml"), "utf8")).toContain("modelRoles");
   });
 
   test("import from the omp fixture round-trips through validate and sync", () => {
@@ -453,19 +406,19 @@ providers:
     writeFileSync(ompPath(), fixture);
     const before = catalogOf(ompPath());
 
-    expect(runUnis(["import", "omp"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["import", "omp"]).exitCode).toBe(0);
     // The agent-specific fields rode through as `overrides.omp`, which is what
     // the round-trip depends on.
-    expect(readFileSync(scorePath(), "utf8")).toContain("overrides");
-    expect(readFileSync(scorePath(), "utf8")).toContain("compat");
+    expect(readFileSync(sandbox.scorePath, "utf8")).toContain("overrides");
+    expect(readFileSync(sandbox.scorePath, "utf8")).toContain("compat");
 
-    const validated = runUnis(["validate"], {
+    const validated = runUnis(sandbox, ["validate"], {
       DEEPSEEK_API_KEY: "sk-fixture-key-87654321",
       ANTHROPIC_API_KEY: "sk-fixture-ant-12345678",
     });
     expect(validated.exitCode).toBe(0);
 
-    const synced = runUnis(["sync", "--yes"], {
+    const synced = runUnis(sandbox, ["sync", "--yes"], {
       DEEPSEEK_API_KEY: "sk-fixture-key-87654321",
       ANTHROPIC_API_KEY: "sk-fixture-ant-12345678",
     });
@@ -501,7 +454,7 @@ providers:
 `,
       );
 
-      expect(runUnis(["sync", "--yes"]).exitCode).toBe(0);
+      expect(runUnis(sandbox, ["sync", "--yes"]).exitCode).toBe(0);
 
       // Read it back the way pi does: the escaped form on disk reverses to what
       // the Score wrote, so the escape is invisible to a reader.
@@ -515,14 +468,14 @@ providers:
     installBothAgents();
 
     for (const args of [["sync", "--yes"], ["validate"], ["list"], ["diff"]]) {
-      const result = runUnis(args);
+      const result = runUnis(sandbox, args);
       // A non-TTY run suppresses color, so nothing in the stream is an escape.
       expect(result.stdout.includes("\x1b[")).toBe(false);
       expect(result.stdout.endsWith("\n")).toBe(true);
     }
 
     // NO_COLOR does the same, and the two together leave nothing behind.
-    const colored = runUnis(["list"], { NO_COLOR: "" });
+    const colored = runUnis(sandbox, ["list"], { NO_COLOR: "" });
     expect(colored.stdout.includes("\x1b[")).toBe(false);
   });
 
@@ -530,13 +483,13 @@ providers:
     writeScore(EXAMPLE_SCORE);
     installBothAgents();
 
-    runUnis(["sync", "--yes"]);
+    runUnis(sandbox, ["sync", "--yes"]);
 
-    expect(statSync(backupsDir()).mode & 0o777).toBe(0o700);
+    expect(statSync(sandbox.backupsDir).mode & 0o777).toBe(0o700);
     expect(statSync(ompPath()).mode & 0o777).toBe(0o600);
     expect(statSync(piPath()).mode & 0o777).toBe(0o600);
-    for (const entry of readdirSync(backupsDir())) {
-      const inside = join(backupsDir(), entry);
+    for (const entry of readdirSync(sandbox.backupsDir)) {
+      const inside = join(sandbox.backupsDir, entry);
       for (const file of readdirSync(inside)) {
         expect(statSync(join(inside, file)).mode & 0o777).toBe(0o600);
       }
@@ -546,13 +499,13 @@ providers:
   test("a sync of two already-synced agents completes well under 100 milliseconds", () => {
     writeScore(EXAMPLE_SCORE);
     installBothAgents();
-    expect(runUnis(["sync", "--yes"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["sync", "--yes"]).exitCode).toBe(0);
 
     // The converged case is the one the budget is for: nothing to compare that
     // is not already known, nothing to write. Measured at the CLI boundary, so
     // the process start and the two parses are in it.
     const started = Date.now();
-    const { exitCode } = runUnis(["sync"]);
+    const { exitCode } = runUnis(sandbox, ["sync"]);
     const elapsed = Date.now() - started;
 
     expect(exitCode).toBe(0);
@@ -565,13 +518,13 @@ providers:
     // The observable check is a relocation the tool is meant to honour — pointed
     // somewhere the test then reads back — plus a sentinel beside it that has to
     // survive untouched.
-    const elsewhere = join(dirname(root), `${basename(root)}-elsewhere`);
+    const elsewhere = join(dirname(sandbox.root), `${basename(sandbox.root)}-elsewhere`);
     mkdirSync(join(elsewhere, "omp"), { recursive: true });
     mkdirSync(join(elsewhere, "pi"), { recursive: true });
 
     writeScore(EXAMPLE_SCORE);
     installBothAgents();
-    const { exitCode } = runUnis(["sync", "--yes"], {
+    const { exitCode } = runUnis(sandbox, ["sync", "--yes"], {
       OMP_CODING_AGENT_DIR: join(elsewhere, "omp"),
       PI_CODING_AGENT_DIR: join(elsewhere, "pi"),
     });
@@ -582,7 +535,7 @@ providers:
     // is what makes the rest of the isolation property hold. Had the tool
     // written to its own default paths instead, the files would be outside this
     // temporary tree entirely.
-    expect(existsSync(join(root, "omp", "agent", "models.yml"))).toBe(true);
+    expect(existsSync(join(sandbox.root, "omp", "agent", "models.yml"))).toBe(true);
     expect(readFileSync(ompPath(), "utf8")).toBe("modelOverrides:\n  role: hand\n");
   });
 
@@ -592,11 +545,11 @@ providers:
     writeScore(EXAMPLE_SCORE);
     installBothAgents();
 
-    expect(runUnis(["sync", "--yes"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["sync", "--yes"]).exitCode).toBe(0);
     const after = readFileSync(ompPath(), "utf8");
 
-    expect(runUnis(["sync", "--yes"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["sync", "--yes"]).exitCode).toBe(0);
     expect(readFileSync(ompPath(), "utf8")).toBe(after);
-    expect(runUnis(["sync", "--yes"]).stdout).toContain("Unchanged");
+    expect(runUnis(sandbox, ["sync", "--yes"]).stdout).toContain("Unchanged");
   });
 });

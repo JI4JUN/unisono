@@ -3,31 +3,30 @@
  * config tree — the single seam mandated by the spec's Testing Decisions.
  * No internal module is imported; takeover, preservation, permissions, and
  * symlinks are all asserted through the command boundary and the files it
- * leaves behind.
+ * leaves behind. The seam itself, the sandbox, and the per-test teardown come
+ * from `test/harness.ts`.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   chmodSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
+  rmSync,
   readdirSync,
   readFileSync,
-  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runUnis, useSandbox, type Sandbox } from "./harness";
 
-const ENTRY = join(import.meta.dir, "..", "src", "cli.ts");
+const sandbox: Sandbox = useSandbox();
 
-let root: string;
-let ompDir: string;
-let piDir: string;
-let scorePath: string;
+function writeScore(text: string): void {
+  writeFileSync(sandbox.scorePath, text);
+}
 
 /** A Score declaring one provider and one model, expandable and valid. */
 const VALID_SCORE = `version: "1"
@@ -67,39 +66,10 @@ const COMPILED_CATALOG = {
   },
 };
 
-function runUnis(
-  args: string[],
-  env: Record<string, string> = {},
-): { stdout: string; stderr: string; exitCode: number } {
-  const result = Bun.spawnSync({
-    cmd: [process.execPath, ENTRY, ...args],
-    env: {
-      HOME: root,
-      XDG_CONFIG_HOME: join(root, "config"),
-      OMP_CODING_AGENT_DIR: ompDir,
-      PI_CODING_AGENT_DIR: piDir,
-      NO_COLOR: "1",
-      PATH: process.env.PATH ?? "",
-      ...env,
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return {
-    stdout: result.stdout.toString(),
-    stderr: result.stderr.toString(),
-    exitCode: result.exitCode ?? -1,
-  };
-}
-
-function writeScore(text: string): void {
-  writeFileSync(scorePath, text);
-}
-
 /** An omp config holding one unrelated provider, for a drifting start. */
 function writeDriftingConfig(): void {
   writeFileSync(
-    join(ompDir, "models.yml"),
+    join(sandbox.ompDir, "models.yml"),
     ["modelOverrides:", "  role: keep this", "providers:", "  stale:", "    models: []"].join("\n"),
   );
 }
@@ -121,34 +91,20 @@ function readKey(node: unknown, key: string): unknown {
 
 /** The `providers` map of an omp config, as parsed. */
 function ompCatalog(): unknown {
-  return readKey(Bun.YAML.parse(readFileSync(join(ompDir, "models.yml"), "utf8")), "providers");
+  return readKey(Bun.YAML.parse(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")), "providers");
 }
 
 /** The modified time of omp's config, for asserting a write did or did not happen. */
 function ompMtime(): number {
-  return statSync(join(ompDir, "models.yml")).mtimeMs;
+  return statSync(join(sandbox.ompDir, "models.yml")).mtimeMs;
 }
-
-beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "unis-sync-"));
-  ompDir = join(root, "omp", "agent");
-  piDir = join(root, "pi", "agent");
-  scorePath = join(root, "config", "unisono", "score.yaml");
-  mkdirSync(ompDir, { recursive: true });
-  mkdirSync(piDir, { recursive: true });
-  mkdirSync(join(root, "config", "unisono"), { recursive: true });
-});
-
-afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
-});
 
 describe("unis sync — takeover and preservation", () => {
   test("replaces the Catalog wholesale, so it holds exactly the compiled providers", () => {
     writeScore(VALID_SCORE);
     writeDriftingConfig();
 
-    const { stdout, exitCode } = runUnis(["sync", "--yes"]);
+    const { stdout, exitCode } = runUnis(sandbox, ["sync", "--yes"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Synced (1 providers, 1 models)");
@@ -158,7 +114,7 @@ describe("unis sync — takeover and preservation", () => {
   test("preserves every non-Catalog top-level key byte-for-byte", () => {
     writeScore(VALID_SCORE);
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       [
         "# a leading comment",
         "modelOverrides:",
@@ -170,9 +126,9 @@ describe("unis sync — takeover and preservation", () => {
       ].join("\n"),
     );
 
-    runUnis(["sync", "--yes"]);
+    runUnis(sandbox, ["sync", "--yes"]);
 
-    const written = readFileSync(join(ompDir, "models.yml"), "utf8");
+    const written = readFileSync(join(sandbox.ompDir, "models.yml"), "utf8");
     // The user's own text — quoting, commentary, and all — is untouched.
     expect(written).toContain("# a leading comment");
     expect(written).toContain("modelOverrides:");
@@ -189,14 +145,14 @@ describe("unis sync — takeover and preservation", () => {
     // in place, not left behind beside a canonical duplicate.
     writeScore(VALID_SCORE);
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       ['"providers":', "  stale:", "    models: []", "modelOverrides:", "  role: keep"].join("\n"),
     );
 
-    const { exitCode } = runUnis(["sync", "--yes"]);
+    const { exitCode } = runUnis(sandbox, ["sync", "--yes"]);
 
     expect(exitCode).toBe(0);
-    const parsed = Bun.YAML.parse(readFileSync(join(ompDir, "models.yml"), "utf8"));
+    const parsed = Bun.YAML.parse(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8"));
     // Exactly one Catalog key, holding exactly the compiled Catalog.
     expect(Object.keys(readKey(parsed, "providers") as object)).toEqual(["deepseek"]);
     expect(JSON.stringify(readKey(parsed, "providers"))).toBe(JSON.stringify(COMPILED_CATALOG));
@@ -205,12 +161,12 @@ describe("unis sync — takeover and preservation", () => {
 
   test("appends the Catalog when the config has none", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(ompDir, "models.yml"), "modelOverrides:\n  role: keep\n");
+    writeFileSync(join(sandbox.ompDir, "models.yml"), "modelOverrides:\n  role: keep\n");
 
-    const { exitCode } = runUnis(["sync"]);
+    const { exitCode } = runUnis(sandbox, ["sync"]);
 
     expect(exitCode).toBe(0);
-    expect(readKey(Bun.YAML.parse(readFileSync(join(ompDir, "models.yml"), "utf8")), "modelOverrides")).toEqual({
+    expect(readKey(Bun.YAML.parse(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")), "modelOverrides")).toEqual({
       role: "keep",
     });
     expect(JSON.stringify(ompCatalog())).toBe(JSON.stringify(COMPILED_CATALOG));
@@ -225,16 +181,16 @@ describe("unis sync — idempotence", () => {
       null,
       2,
     );
-    writeFileSync(join(ompDir, "models.yml"), converged);
+    writeFileSync(join(sandbox.ompDir, "models.yml"), converged);
     const mtimeBefore = ompMtime();
 
-    const { stdout, exitCode } = runUnis(["sync"]);
+    const { stdout, exitCode } = runUnis(sandbox, ["sync"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Unchanged (1 providers, 1 models)");
     expect(stdout).not.toContain("drifts");
     // No snapshot and no write: contents and mtime are as they were.
-    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toBe(converged);
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toBe(converged);
     expect(ompMtime()).toBe(mtimeBefore);
   });
 
@@ -256,15 +212,15 @@ describe("unis sync — idempotence", () => {
       '      baseUrl: "https://api.deepseek.com/v1"',
       '      name: "DeepSeek Official"',
     ].join("\n");
-    writeFileSync(join(ompDir, "models.yml"), reformatted);
+    writeFileSync(join(sandbox.ompDir, "models.yml"), reformatted);
     const mtimeBefore = ompMtime();
 
-    const { stdout, exitCode } = runUnis(["sync"]);
+    const { stdout, exitCode } = runUnis(sandbox, ["sync"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Unchanged");
     // Semantic equality drives the decision, so the formatting is left alone.
-    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toBe(reformatted);
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toBe(reformatted);
     expect(ompMtime()).toBe(mtimeBefore);
   });
 });
@@ -272,25 +228,25 @@ describe("unis sync — idempotence", () => {
 describe("unis sync — write safety", () => {
   test("writes the target config with 0600 permissions", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(ompDir, "models.yml"), "providers: {}\n");
+    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers: {}\n");
     // Start world-readable, as a hand-written config often is.
-    chmodSync(join(ompDir, "models.yml"), 0o644);
+    chmodSync(join(sandbox.ompDir, "models.yml"), 0o644);
 
-    const { exitCode } = runUnis(["sync", "--yes"]);
+    const { exitCode } = runUnis(sandbox, ["sync", "--yes"]);
 
     expect(exitCode).toBe(0);
-    expect(statSync(join(ompDir, "models.yml")).mode & 0o777).toBe(0o600);
+    expect(statSync(join(sandbox.ompDir, "models.yml")).mode & 0o777).toBe(0o600);
   });
 
   test("writes through a symlink, replacing the real file and keeping the link", () => {
     writeScore(VALID_SCORE);
-    const real = join(root, "real-models.yml");
-    const linked = join(root, "linked", "agent");
+    const real = join(sandbox.root, "real-models.yml");
+    const linked = join(sandbox.root, "linked", "agent");
     mkdirSync(linked, { recursive: true });
     writeFileSync(real, "providers:\n  stale: {}\n");
     symlinkSync(real, join(linked, "models.yml"));
 
-    const { stdout, exitCode } = runUnis(["sync", "--yes"], { OMP_CODING_AGENT_DIR: linked });
+    const { stdout, exitCode } = runUnis(sandbox, ["sync", "--yes"], { OMP_CODING_AGENT_DIR: linked });
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Synced");
@@ -305,10 +261,10 @@ describe("unis sync — write safety", () => {
     writeScore(VALID_SCORE);
     writeDriftingConfig();
 
-    const { exitCode } = runUnis(["sync", "--yes"]);
+    const { exitCode } = runUnis(sandbox, ["sync", "--yes"]);
 
     expect(exitCode).toBe(0);
-    expect(readdirSync(ompDir)).toEqual(["models.yml"]);
+    expect(readdirSync(sandbox.ompDir)).toEqual(["models.yml"]);
   });
 
   test("leaves a drifting pi config untouched, because its write path is not built yet", () => {
@@ -321,10 +277,10 @@ describe("unis sync — write safety", () => {
       null,
       2,
     );
-    writeFileSync(join(piDir, "models.json"), piConfig);
-    const mtimeBefore = statSync(join(piDir, "models.json")).mtimeMs;
+    writeFileSync(join(sandbox.piDir, "models.json"), piConfig);
+    const mtimeBefore = statSync(join(sandbox.piDir, "models.json")).mtimeMs;
 
-    const { stdout, exitCode } = runUnis(["sync"]);
+    const { stdout, exitCode } = runUnis(sandbox, ["sync"]);
 
     // The gate fires on pi's undeclared provider and refuses the whole sync, so
     // the takeover never reaches the write path for either Agent.
@@ -332,8 +288,8 @@ describe("unis sync — write safety", () => {
     expect(stdout).toContain("drifts");
     expect(stdout).toContain("[PI]");
     // The file is exactly as it was: same bytes, same time, still parseable.
-    expect(readFileSync(join(piDir, "models.json"), "utf8")).toBe(piConfig);
-    expect(statSync(join(piDir, "models.json")).mtimeMs).toBe(mtimeBefore);
+    expect(readFileSync(join(sandbox.piDir, "models.json"), "utf8")).toBe(piConfig);
+    expect(statSync(join(sandbox.piDir, "models.json")).mtimeMs).toBe(mtimeBefore);
     expect(readKey(Bun.JSONC.parse(piConfig), "settings")).toEqual({
       defaultModel: "deepseek/deepseek-reasoner",
     });
@@ -351,17 +307,17 @@ describe("unis sync — write safety", () => {
     writeScore(VALID_SCORE);
     writeDriftingConfig();
 
-    const first = runUnis(["sync", "--yes"]);
-    const afterFirst = readFileSync(join(ompDir, "models.yml"), "utf8");
+    const first = runUnis(sandbox, ["sync", "--yes"]);
+    const afterFirst = readFileSync(join(sandbox.ompDir, "models.yml"), "utf8");
 
-    const second = runUnis(["sync"]);
+    const second = runUnis(sandbox, ["sync"]);
 
     expect(first.exitCode).toBe(0);
     expect(first.stdout).toContain("Synced");
     expect(second.exitCode).toBe(0);
     expect(second.stdout).toContain("Unchanged");
     // The second sync made no write, so what the first wrote stands.
-    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toBe(afterFirst);
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toBe(afterFirst);
   });
 
   test("reports a config it cannot safely write instead of clobbering it", () => {
@@ -372,10 +328,10 @@ describe("unis sync — write safety", () => {
     // directory in place of the file is what the rename cannot get past.
     writeScore(VALID_SCORE);
     writeDriftingConfig();
-    rmSync(join(ompDir, "models.yml"));
-    mkdirSync(join(ompDir, "models.yml"), { recursive: true });
+    rmSync(join(sandbox.ompDir, "models.yml"));
+    mkdirSync(join(sandbox.ompDir, "models.yml"), { recursive: true });
 
-    const result = runUnis(["sync", "--yes"]);
+    const result = runUnis(sandbox, ["sync", "--yes"]);
 
     // A config left half-taken-over is the one outcome the whole write path
     // exists to prevent, so any failure here has to be a loud one.
@@ -387,7 +343,7 @@ describe("unis sync — the first-takeover gate", () => {
   /** An omp config whose Catalog holds a Provider the Score does not declare. */
   function writeDoomedConfig(): void {
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       [
         "modelOverrides:",
         "  role: hand-written",
@@ -406,7 +362,7 @@ describe("unis sync — the first-takeover gate", () => {
     writeScore(VALID_SCORE);
     writeDoomedConfig();
 
-    const { stdout, stderr, exitCode } = runUnis(["sync"]);
+    const { stdout, stderr, exitCode } = runUnis(sandbox, ["sync"]);
 
     expect(exitCode).toBe(2);
     expect(stdout + stderr).toContain("would delete Providers not declared in the Score");
@@ -416,7 +372,7 @@ describe("unis sync — the first-takeover gate", () => {
     writeScore(VALID_SCORE);
     writeDoomedConfig();
 
-    const { stdout, stderr, exitCode } = runUnis(["sync"]);
+    const { stdout, stderr, exitCode } = runUnis(sandbox, ["sync"]);
 
     expect(exitCode).toBe(2);
     // The gate is a refusal, so its listing goes to stderr.
@@ -427,7 +383,7 @@ describe("unis sync — the first-takeover gate", () => {
     writeScore(VALID_SCORE);
     writeDoomedConfig();
 
-    const { stdout, stderr, exitCode } = runUnis(["sync"]);
+    const { stdout, stderr, exitCode } = runUnis(sandbox, ["sync"]);
 
     expect(exitCode).toBe(2);
     expect(stdout + stderr).toContain("unis sync --yes");
@@ -439,34 +395,34 @@ describe("unis sync — the first-takeover gate", () => {
   test("writes nothing to either Agent while refusing", () => {
     writeScore(VALID_SCORE);
     writeDoomedConfig();
-    const before = readFileSync(join(ompDir, "models.yml"), "utf8");
+    const before = readFileSync(join(sandbox.ompDir, "models.yml"), "utf8");
     const piConfig = JSON.stringify({ settings: { defaultModel: "hand-tuned/hand-model" } }, null, 2);
-    writeFileSync(join(piDir, "models.json"), piConfig);
+    writeFileSync(join(sandbox.piDir, "models.json"), piConfig);
     const ompMtimeBefore = ompMtime();
-    const piMtimeBefore = statSync(join(piDir, "models.json")).mtimeMs;
+    const piMtimeBefore = statSync(join(sandbox.piDir, "models.json")).mtimeMs;
 
-    const { exitCode } = runUnis(["sync"]);
+    const { exitCode } = runUnis(sandbox, ["sync"]);
 
     expect(exitCode).toBe(2);
     // Not even the Agent whose Catalog only drifts was touched.
-    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toBe(before);
-    expect(readFileSync(join(piDir, "models.json"), "utf8")).toBe(piConfig);
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toBe(before);
+    expect(readFileSync(join(sandbox.piDir, "models.json"), "utf8")).toBe(piConfig);
     expect(ompMtime()).toBe(ompMtimeBefore);
-    expect(statSync(join(piDir, "models.json")).mtimeMs).toBe(piMtimeBefore);
+    expect(statSync(join(sandbox.piDir, "models.json")).mtimeMs).toBe(piMtimeBefore);
   });
 
   test("proceeds with the takeover when --yes is passed", () => {
     writeScore(VALID_SCORE);
     writeDoomedConfig();
 
-    const { stdout, stderr, exitCode } = runUnis(["sync", "--yes"]);
+    const { stdout, stderr, exitCode } = runUnis(sandbox, ["sync", "--yes"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Synced (1 providers, 1 models)");
     // The written Catalog holds exactly what the Score declares: the doomed
     // entry is gone, and the non-Catalog node survived the takeover.
     expect(JSON.stringify(ompCatalog())).toBe(JSON.stringify(COMPILED_CATALOG));
-    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toContain("role: hand-written");
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain("role: hand-written");
   });
 
   test("does not fire when the Catalog already matches the Score's providers", () => {
@@ -474,15 +430,15 @@ describe("unis sync — the first-takeover gate", () => {
     // drift from the compiled result — deletes nothing, so the gate stays shut.
     writeScore(VALID_SCORE);
     const converged = Bun.YAML.stringify({ providers: COMPILED_CATALOG }, null, 2);
-    writeFileSync(join(ompDir, "models.yml"), converged);
+    writeFileSync(join(sandbox.ompDir, "models.yml"), converged);
     const mtimeBefore = ompMtime();
 
-    const { stdout, exitCode } = runUnis(["sync"]);
+    const { stdout, exitCode } = runUnis(sandbox, ["sync"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Unchanged (1 providers, 1 models)");
     expect(stdout).not.toContain("would delete");
-    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toBe(converged);
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toBe(converged);
     expect(ompMtime()).toBe(mtimeBefore);
   });
 
@@ -490,12 +446,12 @@ describe("unis sync — the first-takeover gate", () => {
     writeScore(VALID_SCORE);
     writeDoomedConfig();
 
-    const { exitCode } = runUnis(["sync", "--dry-run"]);
+    const { exitCode } = runUnis(sandbox, ["sync", "--dry-run"]);
 
     // A preview never writes, so it reports what a takeover would delete and
     // exits 0 rather than asking for a confirmation it will never act on.
     expect(exitCode).toBe(0);
-    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toContain("hand-tuned");
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain("hand-tuned");
   });
 
   test("does not fire when a Provider the Score declares is merely drifting", () => {
@@ -504,11 +460,11 @@ describe("unis sync — the first-takeover gate", () => {
     // shut even though the sync still writes.
     writeScore(VALID_SCORE);
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       ["providers:", "  deepseek:", "    baseUrl: https://wrong.example/v1"].join("\n"),
     );
 
-    const { stdout, exitCode } = runUnis(["sync"]);
+    const { stdout, exitCode } = runUnis(sandbox, ["sync"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).not.toContain("would delete");
@@ -521,14 +477,14 @@ describe("unis sync — the first-takeover gate", () => {
     // find them "declared" by a Score that never declared them — keeping the
     // gate shut over an entry the takeover then deletes silently.
     writeScore(VALID_SCORE);
-    writeFileSync(join(ompDir, "models.yml"), "providers:\n  constructor:\n    models: []\n");
+    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers:\n  constructor:\n    models: []\n");
 
-    const { stdout, stderr, exitCode } = runUnis(["sync"]);
+    const { stdout, stderr, exitCode } = runUnis(sandbox, ["sync"]);
 
     expect(exitCode).toBe(2);
     expect(stdout + stderr).toContain("OMP: constructor");
     // The refusal withheld the write, so the entry is still there.
-    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toContain("constructor");
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain("constructor");
   });
 });
 
@@ -536,15 +492,15 @@ describe("unis sync --dry-run", () => {
   test("previews the takeover and writes nothing", () => {
     writeScore(VALID_SCORE);
     writeDriftingConfig();
-    const before = readFileSync(join(ompDir, "models.yml"), "utf8");
+    const before = readFileSync(join(sandbox.ompDir, "models.yml"), "utf8");
     const mtimeBefore = ompMtime();
 
-    const { stdout, exitCode } = runUnis(["sync", "--dry-run"]);
+    const { stdout, exitCode } = runUnis(sandbox, ["sync", "--dry-run"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("drifts");
     expect(stdout).not.toContain("Synced");
-    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toBe(before);
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toBe(before);
     expect(ompMtime()).toBe(mtimeBefore);
   });
 });
@@ -552,10 +508,10 @@ describe("unis sync --dry-run", () => {
 describe("unis sync — reporting", () => {
   test("reports each Agent's state and exits 1 when one cannot be parsed", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(ompDir, "models.yml"), "providers: [unclosed\n");
-    writeFileSync(join(piDir, "models.json"), "{ broken");
+    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers: [unclosed\n");
+    writeFileSync(join(sandbox.piDir, "models.json"), "{ broken");
 
-    const { stdout, exitCode } = runUnis(["sync"]);
+    const { stdout, exitCode } = runUnis(sandbox, ["sync"]);
 
     // One broken Agent must not blind the other.
     expect(stdout).toContain("[OMP]");
@@ -567,7 +523,7 @@ describe("unis sync — reporting", () => {
   test("exits 1 with the reason when the Score itself is invalid", () => {
     writeScore('version: "2"\nproviders: {}\n');
 
-    const { stderr, exitCode } = runUnis(["sync"]);
+    const { stderr, exitCode } = runUnis(sandbox, ["sync"]);
 
     expect(exitCode).toBe(1);
     expect(stderr).toContain("version");
@@ -577,10 +533,10 @@ describe("unis sync — reporting", () => {
     writeScore(VALID_SCORE);
     writeDriftingConfig();
 
-    const { exitCode } = runUnis(["sync", "--yolo"]);
+    const { exitCode } = runUnis(sandbox, ["sync", "--yolo"]);
 
     expect(exitCode).not.toBe(0);
     // Nothing was written while the flag was being rejected.
-    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toContain("stale");
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain("stale");
   });
 });

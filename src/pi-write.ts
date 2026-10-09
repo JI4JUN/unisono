@@ -119,7 +119,7 @@ export function replacePiCatalogNode(existing: string, catalog: Catalog): string
   // the document itself. A member at the document's own depth begins a block;
   // a member inside it is body, and never one.
   const lines = existing.split("\n");
-  const depths = lineDepths(lines);
+  const { depths, close, ends } = scanDocument(lines);
   const starts: number[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const key = blockKey(lines[index] ?? "");
@@ -131,18 +131,15 @@ export function replacePiCatalogNode(existing: string, catalog: Catalog): string
 
   // The document's own closing brace is the boundary of the last block, so it
   // joins the list: without it a Catalog that is the last key would swallow the
-  // brace and leave the file unparseable. Found by depth, so a document
-  // keeping the brace on the same line as its own contents still has one.
+  // brace and leave the file unparseable.
   const lastBlock = starts[starts.length - 1];
   if (lastBlock !== undefined && (depths[lastBlock] ?? 0) === 1) {
-    const close = lastIndexOfClose(lines);
     if (close > lastBlock) starts.push(close);
   }
   const catalogStart = starts.findIndex((start) => blockKey(lines[start] ?? "") === CATALOG_KEY);
   if (catalogStart === -1) {
     // No Catalog yet: the user's blocks are kept and the Catalog is appended
     // before the document's own closing brace, where a top-level key belongs.
-    const close = lastIndexOfClose(lines);
     if (close === -1) return `${JSON.stringify({ [CATALOG_KEY]: escapePiCatalog(catalog) }, null, 2)}\n`;
 
     // A document whose closing brace shares its line with content has no line
@@ -164,9 +161,11 @@ export function replacePiCatalogNode(existing: string, catalog: Catalog): string
   // brace. When the block is the last one and the brace shares its line with
   // it, the block's own brackets take the depth below zero — the document's
   // brace is inside the text being replaced, and cutting there would leave the
-  // file unparseable. That document is re-emitted instead.
-  const end = Math.min(to, lines.length);
-  if (blockConsumesClose(lines, from, end)) return reemitWithCatalog(parsed, catalog);
+  // file unparseable. That document is re-emitted instead. The depth before the
+  // block is where the block has to come back to, so a drop below it is the
+  // tell.
+  const base = depths[from] ?? 0;
+  if ((ends[to - 1] ?? base) < base) return reemitWithCatalog(parsed, catalog);
   const before = lines.slice(0, from).join("\n");
   const after = lines.slice(to).join("\n");
   // The separator belongs to the document, not to the block: whether the
@@ -193,6 +192,68 @@ function indentBody(body: string, indent: string): string {
 }
 
 /**
+ * One pass over a document's lines, reading the structure the splice needs.
+ *
+ * Three things are wanted from the same walk — the depth each line starts at
+ * (which is what makes a top-level key detectable), the line the document's own
+ * closing brace sits on, and whether the last block swallows that brace — and
+ * all three are functions of the same bracket count. Counting once and
+ * returning all of them is both less code and one fewer place for the three
+ * answers to disagree with each other.
+ *
+ * The counting is string- and comment-aware: a `{` or `}` inside either belongs
+ * to the text, not to the structure, and an escape-aware string scan is what
+ * keeps an escaped quote from ending one.
+ */
+function scanDocument(lines: string[]): {
+  /** The bracket depth each line begins at, by line index. */
+  depths: number[];
+  /** The line the document's own closing brace sits on, or -1. */
+  close: number;
+  /** The depth after each line, so a range of lines can be summed. */
+  ends: number[];
+} {
+  const depths: number[] = [];
+  const ends: number[] = [];
+  let close = -1;
+  let depth = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    depths.push(depth);
+    let closed = 0;
+    // One line at a time, with its own string state: a multi-line string would
+    // make the rest of the document one string, which no JSONC document has.
+    let inString = false;
+    let escaped = false;
+    const line = lines[index] ?? "";
+    for (let at = 0; at < line.length; at += 1) {
+      const char = line[at] ?? "";
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
+      } else if (char === '"') {
+        inString = true;
+      } else if (char === "/" && line[at + 1] === "/") {
+        break;
+      } else if (char === "{" || char === "[") {
+        depth += 1;
+      } else if (char === "}" || char === "]") {
+        depth -= 1;
+        closed += 1;
+      }
+    }
+    ends.push(depth);
+    // Back to the document's own level, and a bracket is what got it there: the
+    // last such line is the document's closing brace, whether it sits alone on
+    // its own line or shares it with everything it closes.
+    if (depth === 0 && closed > 0) close = index;
+  }
+
+  return { depths, close, ends };
+}
+
+/**
  * The document re-emitted with the Catalog in it.
  *
  * This reformats the text — the whitespace is lost — but keeps every node,
@@ -207,99 +268,6 @@ function reemitWithCatalog(parsed: Record<string, unknown>, catalog: Catalog): s
   }
   kept[CATALOG_KEY] = escapePiCatalog(catalog);
   return `${JSON.stringify(kept, null, 2)}\n`;
-}
-
-/**
- * Whether the block being replaced contains the document's own closing brace.
- *
- * A block is a self-contained value, so its brackets balance; if the lines it
- * runs over take the depth below zero, the document's brace is among them, and
- * replacing the block would remove it. That is the shape a config has when the
- * last key shares its line with the brace — `"providers": {} }` — and it is
- * unrepresentable as a text splice, which is why it falls back to a re-emit.
- */
-function blockConsumesClose(lines: string[], from: number, to: number): boolean {
-  const depth = { at: 0 };
-  for (let index = from; index < to && index < lines.length; index += 1) {
-    scanLine(lines[index] ?? "", depth);
-    if (depth.at < 0) return true;
-  }
-  return false;
-}
-
-/**
- * The last line carrying brackets that close back to the level they opened at.
- *
- * This is the document's own closing brace, and counting the brackets is what
- * makes it hold for a document that keeps the brace on the same line as its own
- * contents (`{ "settings": {...} }` opens and closes at level zero) as much as
- * for a formatted one, where matching the brace as text would find only a brace
- * alone on its own line — and treat an unformatted document as having none,
- * dropping every node the user had.
- */
-function lastIndexOfClose(lines: string[]): number {
-  const depth = { at: 0 };
-  let close = -1;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const seen = { opened: 0, closed: 0 };
-    scanLine(lines[index] ?? "", depth, seen);
-    // Back to the document's own level, and a bracket is what got it there:
-    // the last such line is the document's closing brace, whether it sits alone
-    // on its own line or shares it with everything it closes.
-    if (depth.at === 0 && seen.closed > 0) close = index;
-  }
-  return close;
-}
-
-/**
- * The bracket depth each line begins at.
- *
- * Depth is counted only outside strings and comments, because a `{` or `}` in
- * either belongs to the text and not to the document's structure. The depth at
- * a line's start is what makes a top-level key detectable: it sits one level
- * inside the document's own braces.
- */
-function lineDepths(lines: string[]): number[] {
-  const depths: number[] = [];
-  const depth = { at: 0 };
-  for (const line of lines) {
-    depths.push(depth.at);
-    scanLine(line, depth);
-  }
-  return depths;
-}
-
-/**
- * Counts one line's brackets into `depth`, in place, tallying them into `seen`.
- *
- * Shared by the two scans that need to know what a line did to the depth: the
- * per-line depths, and the document's closing brace. A string is left alone —
- * escape-aware, so an escaped quote does not end it — and a comment to end of
- * line has no structure in it at all. The tally is what lets the caller tell a
- * brace inside a string, or no bracket at all, from a real one.
- */
-function scanLine(line: string, depth: { at: number }, seen?: { opened: number; closed: number }): void {
-  let inString = false;
-  let escaped = false;
-  for (let at = 0; at < line.length; at += 1) {
-    const char = line[at] ?? "";
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === '"') inString = false;
-    } else if (char === '"') {
-      inString = true;
-    } else if (char === "/" && line[at + 1] === "/") {
-      break;
-    } else if (char === "{" || char === "[") {
-      depth.at += 1;
-      if (seen) seen.opened += 1;
-    } else if (char === "}" || char === "]") {
-      depth.at -= 1;
-      if (seen) seen.closed += 1;
-    }
-  }
 }
 
 /**

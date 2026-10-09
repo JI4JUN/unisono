@@ -26,7 +26,7 @@ export type WriteResult =
   | { wrote: false; reason: "write-failed" };
 
 /** SHA-256 of a file's bytes, or null when the file is not there to hash. */
-export function hashFile(path: string): string | null {
+function hashFile(path: string): string | null {
   try {
     return hashText(readFileSync(path, "utf8"));
   } catch {

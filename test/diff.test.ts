@@ -3,25 +3,20 @@
  * config tree — the single seam mandated by the spec's Testing Decisions.
  * No internal module is imported; compilation, Override merging, equality,
  * masking, and exit codes are all asserted through the command boundary.
+ * The seam itself, the sandbox, and the per-test teardown come from
+ * `test/harness.ts`.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { runUnis, useSandbox, type Sandbox } from "./harness";
 
-const ENTRY = join(import.meta.dir, "..", "src", "cli.ts");
+const sandbox: Sandbox = useSandbox();
 
-let root: string;
-let ompDir: string;
-let piDir: string;
-let scorePath: string;
+function writeScore(text: string): void {
+  writeFileSync(sandbox.scorePath, text);
+}
 
 /** A Score declaring one provider and one reasoner model, expandable and valid. */
 const VALID_SCORE = `version: "1"
@@ -41,50 +36,6 @@ providers:
         reasoning: true
 `;
 
-/** Runs `unis` with the given argument in an environment pointed at `root`. */
-function runUnis(
-  arg: string,
-  env: Record<string, string> = {},
-): { stdout: string; stderr: string; exitCode: number } {
-  const result = Bun.spawnSync({
-    cmd: [process.execPath, ENTRY, arg],
-    env: {
-      HOME: root,
-      XDG_CONFIG_HOME: join(root, "config"),
-      OMP_CODING_AGENT_DIR: ompDir,
-      PI_CODING_AGENT_DIR: piDir,
-      NO_COLOR: "1",
-      PATH: process.env.PATH ?? "",
-      ...env,
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return {
-    stdout: result.stdout.toString(),
-    stderr: result.stderr.toString(),
-    exitCode: result.exitCode ?? -1,
-  };
-}
-
-function writeScore(text: string): void {
-  writeFileSync(scorePath, text);
-}
-
-beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "unis-diff-"));
-  ompDir = join(root, "omp", "agent");
-  piDir = join(root, "pi", "agent");
-  scorePath = join(root, "config", "unisono", "score.yaml");
-  mkdirSync(ompDir, { recursive: true });
-  mkdirSync(piDir, { recursive: true });
-  mkdirSync(join(root, "config", "unisono"), { recursive: true });
-});
-
-afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
-});
-
 /** The omp Catalog the plain VALID_SCORE compiles to. */
 const MAPPED_CATALOG = `    name: "DeepSeek Official"
     baseUrl: "https://api.deepseek.com/v1"
@@ -102,9 +53,9 @@ const MAPPED_CATALOG = `    name: "DeepSeek Official"
 describe("unis diff", () => {
   test("reports nothing to change when omp already holds the compiled Catalog, exiting 0", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(ompDir, "models.yml"), `providers:\n  deepseek:\n${MAPPED_CATALOG}\n`);
+    writeFileSync(join(sandbox.ompDir, "models.yml"), `providers:\n  deepseek:\n${MAPPED_CATALOG}\n`);
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("[OMP]");
@@ -117,7 +68,7 @@ describe("unis diff", () => {
     // order the compiler emits, and indentation differs.
     writeScore(VALID_SCORE);
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       [
         "providers:",
         "  deepseek:",
@@ -136,7 +87,7 @@ describe("unis diff", () => {
       ].join("\n"),
     );
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Unchanged");
@@ -145,7 +96,7 @@ describe("unis diff", () => {
   test("names each differing field and shows what each side holds", () => {
     writeScore(VALID_SCORE);
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       [
         "providers:",
         "  deepseek:",
@@ -163,7 +114,7 @@ describe("unis diff", () => {
       ].join("\n"),
     );
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("drifts in 3 field(s)");
@@ -178,11 +129,11 @@ describe("unis diff", () => {
   test("reports a Provider missing from disk as an addition and an extra one as a removal", () => {
     writeScore(VALID_SCORE);
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       ["providers:", "  stale:", "    models: []", `    name: "Stale"`].join("\n"),
     );
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("deepseek");
@@ -196,7 +147,7 @@ describe("unis diff", () => {
     // line dumps the entire Provider map, key included.
     writeScore(VALID_SCORE);
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       [
         "providers:",
         "  stale:",
@@ -205,7 +156,7 @@ describe("unis diff", () => {
       ].join("\n"),
     );
 
-    const { stdout } = runUnis("diff");
+    const { stdout } = runUnis(sandbox, ["diff"]);
 
     expect(stdout).not.toContain("sk-sample-key-1234567890");
     expect(stdout).not.toContain("sk-on-disk-key-1234567890");
@@ -215,9 +166,9 @@ describe("unis diff", () => {
 
   test("masks apiKey as the first five and last four characters", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(ompDir, "models.yml"), "providers:\n  deepseek:\n    models: []\n");
+    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers:\n  deepseek:\n    models: []\n");
 
-    const { stdout } = runUnis("diff");
+    const { stdout } = runUnis(sandbox, ["diff"]);
 
     expect(stdout).toContain("sk-sa***7890");
     expect(stdout).not.toContain("sk-sample-key-1234567890");
@@ -227,9 +178,9 @@ describe("unis diff", () => {
     writeScore(
       VALID_SCORE.replace('    apiKey: "sk-sample-key-1234567890"\n', '    apiKey: "short"\n'),
     );
-    writeFileSync(join(ompDir, "models.yml"), "providers:\n  deepseek:\n    models: []\n");
+    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers:\n  deepseek:\n    models: []\n");
 
-    const { stdout } = runUnis("diff");
+    const { stdout } = runUnis(sandbox, ["diff"]);
 
     expect(stdout).not.toContain("shortkey");
   });
@@ -237,19 +188,19 @@ describe("unis diff", () => {
   test("leaves every file byte-identical", () => {
     writeScore(VALID_SCORE);
     const before = `providers:\n  deepseek:\n${MAPPED_CATALOG}\n`;
-    writeFileSync(join(ompDir, "models.yml"), before);
+    writeFileSync(join(sandbox.ompDir, "models.yml"), before);
 
-    const { exitCode } = runUnis("diff");
+    const { exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(exitCode).toBe(0);
-    expect(readFileSync(join(ompDir, "models.yml"), "utf8")).toBe(before);
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toBe(before);
   });
 
   test("reports a config that cannot be parsed as Failed and exits 1", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(ompDir, "models.yml"), "providers: [unclosed\n");
+    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers: [unclosed\n");
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(stdout).toContain("[OMP]");
     expect(stdout).toContain("Failed");
@@ -258,10 +209,10 @@ describe("unis diff", () => {
 
   test("inspects the other Agent even when one cannot be parsed", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(ompDir, "models.yml"), "providers: [unclosed\n");
-    writeFileSync(join(piDir, "models.json"), "{ broken");
+    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers: [unclosed\n");
+    writeFileSync(join(sandbox.piDir, "models.json"), "{ broken");
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     // A broken Agent must not blind the other one: both are reported.
     expect(stdout).toContain("[OMP]");
@@ -272,9 +223,9 @@ describe("unis diff", () => {
 
   test("still reports the good Agent when the other one is unparseable", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(ompDir, "models.yml"), "providers: [unclosed\n");
+    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers: [unclosed\n");
     writeFileSync(
-      join(piDir, "models.json"),
+      join(sandbox.piDir, "models.json"),
       JSON.stringify({
         providers: {
           deepseek: {
@@ -297,7 +248,7 @@ describe("unis diff", () => {
       }),
     );
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(stdout).toContain("[OMP]");
     expect(stdout).toContain("Failed");
@@ -309,7 +260,7 @@ describe("unis diff", () => {
   test("reports a missing Agent as Skipped without failing", () => {
     writeScore(VALID_SCORE);
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(stdout).toContain("[OMP]");
     expect(stdout).toContain("Skipped (not installed)");
@@ -320,7 +271,7 @@ describe("unis diff", () => {
   test("exits 1 with the reason when the Score itself is invalid", () => {
     writeScore("version: \"2\"\nproviders: {}\n");
 
-    const { stderr, exitCode } = runUnis("diff");
+    const { stderr, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(exitCode).toBe(1);
     expect(stderr).toContain("version");
@@ -352,7 +303,7 @@ providers:
     // On disk exactly the merge result; if the Score's value won instead,
     // two fields would drift.
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       [
         "providers:",
         "  p:",
@@ -367,7 +318,7 @@ providers:
       ].join("\n"),
     );
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Unchanged");
@@ -396,7 +347,7 @@ providers:
     // The sibling is present, so a shallow merge — which would wipe it — is
     // rejected rather than reported as unchanged.
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       [
         "providers:",
         "  p:",
@@ -414,7 +365,7 @@ providers:
       ].join("\n"),
     );
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Unchanged");
@@ -440,7 +391,7 @@ providers:
 `,
     );
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       [
         "providers:",
         "  p:",
@@ -458,7 +409,7 @@ providers:
       ].join("\n"),
     );
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("drifts");
@@ -484,7 +435,7 @@ providers:
 `,
     );
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       [
         "providers:",
         "  p:",
@@ -499,7 +450,7 @@ providers:
       ].join("\n"),
     );
 
-    const { stdout, exitCode } = runUnis("diff");
+    const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Unchanged");
@@ -509,9 +460,9 @@ providers:
 describe("unis list Catalog comparison", () => {
   test("reports Synced when omp holds the compiled Catalog", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(ompDir, "models.yml"), `providers:\n  deepseek:\n${MAPPED_CATALOG}\n`);
+    writeFileSync(join(sandbox.ompDir, "models.yml"), `providers:\n  deepseek:\n${MAPPED_CATALOG}\n`);
 
-    const { stdout, exitCode } = runUnis("list");
+    const { stdout, exitCode } = runUnis(sandbox, ["list"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("[OMP]");
@@ -521,11 +472,11 @@ describe("unis list Catalog comparison", () => {
   test("reports drifting when the on-disk Catalog differs", () => {
     writeScore(VALID_SCORE);
     writeFileSync(
-      join(ompDir, "models.yml"),
+      join(sandbox.ompDir, "models.yml"),
       ["providers:", "  deepseek:", "    models: []", "    name: X"].join("\n"),
     );
 
-    const { stdout, exitCode } = runUnis("list");
+    const { stdout, exitCode } = runUnis(sandbox, ["list"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("drifts");
@@ -534,9 +485,9 @@ describe("unis list Catalog comparison", () => {
 
   test("reports Failed when the config cannot be parsed", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(ompDir, "models.yml"), "providers: [unclosed\n");
+    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers: [unclosed\n");
 
-    const { stdout, exitCode } = runUnis("list");
+    const { stdout, exitCode } = runUnis(sandbox, ["list"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Failed");
@@ -545,7 +496,7 @@ describe("unis list Catalog comparison", () => {
   test("does not claim Synced when no Score could be read", () => {
     writeScore("");
 
-    const { stdout, exitCode } = runUnis("list");
+    const { stdout, exitCode } = runUnis(sandbox, ["list"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).not.toContain("Synced");

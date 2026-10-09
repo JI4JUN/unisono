@@ -1,23 +1,26 @@
 /**
  * The Score contract, asserted through the CLI subprocess seam the spec
  * mandates: the real `unis` binary against a per-test temporary tree, with
- * output, files, and exit code as the only observable surface.
+ * output, files, and exit code as the only observable surface. The seam
+ * itself, the sandbox, and the per-test teardown come from `test/harness.ts`.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { runUnis, useSandbox, type Sandbox } from "./harness";
 
-const ENTRY = join(import.meta.dir, "..", "src", "cli.ts");
+const sandbox: Sandbox = useSandbox();
 
-let root: string;
-let configDir: string;
-let ompDir: string;
-let piDir: string;
+/** Runs `unis validate` in the sandbox. */
+function runValidate(env: Record<string, string> = {}): { stdout: string; stderr: string; exitCode: number } {
+  return runUnis(sandbox, ["validate"], env);
+}
 
-/** The Score's directory: `$XDG_CONFIG_HOME/unisono`, per the spec. */
-const scoreDir = () => join(configDir, "unisono");
+function writeScore(text: string): void {
+  mkdirSync(join(sandbox.configDir, "unisono"), { recursive: true });
+  writeFileSync(sandbox.scorePath, text);
+}
 
 /** The smallest Score that passes; individual tests break one thing in it. */
 const VALID_SCORE = `version: "1"
@@ -32,55 +35,6 @@ providers:
         name: "DeepSeek V3"
         contextWindow: 65536
 `;
-
-function writeScore(text: string): void {
-  const dir = scoreDir();
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "score.yaml"), text);
-}
-
-/**
- * Runs `unis` with `validate` in an environment whose Score and Agent
- * locations are all inside the test's own temporary directory.
- */
-function runValidate(env: Record<string, string> = {}): {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-} {
-  const result = Bun.spawnSync({
-    cmd: [process.execPath, ENTRY, "validate"],
-    env: {
-      HOME: root,
-      XDG_CONFIG_HOME: configDir,
-      OMP_CODING_AGENT_DIR: ompDir,
-      PI_CODING_AGENT_DIR: piDir,
-      NO_COLOR: "1",
-      PATH: process.env.PATH ?? "",
-      ...env,
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return {
-    stdout: result.stdout.toString(),
-    stderr: result.stderr.toString(),
-    exitCode: result.exitCode ?? -1,
-  };
-}
-
-beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "unis-validate-"));
-  configDir = join(root, "config");
-  ompDir = join(root, "omp", "agent");
-  piDir = join(root, "pi", "agent");
-  mkdirSync(ompDir, { recursive: true });
-  mkdirSync(piDir, { recursive: true });
-});
-
-afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
-});
 
 describe("unis validate — a well-formed Score", () => {
   test("passes and exits 0", () => {
@@ -302,7 +256,7 @@ describe("unis validate — credential references", () => {
 
   test("an aborted run writes nothing anywhere", () => {
     writeScore(VALID_SCORE);
-    const ompConfig = join(ompDir, "models.yml");
+    const ompConfig = join(sandbox.ompDir, "models.yml");
     writeFileSync(ompConfig, "providers: {}\n");
 
     const { exitCode } = runValidate({});
@@ -310,7 +264,7 @@ describe("unis validate — credential references", () => {
     expect(exitCode).toBe(1);
     expect(existsSync(ompConfig)).toBe(true);
     // The Agent's config is untouched: no backup area is even created.
-    expect(existsSync(join(configDir, "unisono", "backups"))).toBe(false);
+    expect(existsSync(join(sandbox.configDir, "unisono", "backups"))).toBe(false);
   });
 });
 

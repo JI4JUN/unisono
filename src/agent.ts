@@ -9,6 +9,7 @@
  */
 
 import { agentConfigPath, isAgentInstalled, type AgentId } from "./paths";
+import { isObjectNode } from "./guards";
 import { hashText } from "./writer";
 
 /** A Catalog as parsed from disk: unknown-shaped, but `providers` must be a map. */
@@ -17,28 +18,24 @@ export type RawConfig = Record<string, unknown>;
 export type Catalog = Record<string, Record<string, unknown>>;
 
 /**
- * An Agent's on-disk state.
+ * Parses an Agent's whole config document.
  *
- * `skipped` means the config file is absent, which is a normal supported state
- * when only one of the two Agents is installed (spec §1.1, story 20).
+ * This is the one place that knows omp speaks YAML and pi speaks JSONC: pi
+ * tolerates `//` comments and trailing commas, which is why the built-in JSONC
+ * parser is used rather than a comment stripper plus `JSON.parse` (the latter
+ * throws on a trailing comma that pi accepts). Shared with the sibling-file
+ * reads in `src/dangling.ts`, so the format rule is written once — two copies
+ * of it would drift the moment one Agent gained a tolerance the other lacks.
+ *
+ * A document that parses to something other than a map is a throw, not an
+ * empty one: the caller is about to read keys out of it, and an empty map
+ * would read as "no providers" rather than "this is not a config".
  */
-export type AgentReport = {
-  agent: AgentId;
-  path: string;
-  state: "installed" | "skipped" | "failed";
-  providers: number;
-  models: number;
-  /** Set for `failed`; why parsing the config went wrong. */
-  reason?: string;
-};
-
-function parseConfig(agent: AgentId, text: string): RawConfig {
-  const parsed = agent === "omp" ? Bun.YAML.parse(text) : Bun.JSONC.parse(text);
+export function parseAgentDocument(agent: AgentId, text: string): RawConfig {
+  const parsed: unknown = agent === "omp" ? Bun.YAML.parse(text) : Bun.JSONC.parse(text);
   if (parsed === null || parsed === undefined) return {};
-  if (typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("expected a config object at top level");
-  }
-  return parsed as RawConfig;
+  if (!isObjectNode(parsed)) throw new Error("expected a config object at top level");
+  return parsed;
 }
 
 /** The `providers` subtree, or an empty Catalog when absent or malformed. */
@@ -97,42 +94,10 @@ export async function readCatalog(
   // would be hashed into the token, and the §5.3 re-check would then compare
   // disk against disk and let a stale write through.
   try {
-    const config = parseConfig(agent, text);
+    const config = parseAgentDocument(agent, text);
     return { ok: true, path, catalog: catalogOf(config), text, sha256: hashText(text) };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return { ok: false, path, reason };
   }
-}
-
-/**
- * Reads an Agent's config and counts what its Catalog holds.
- *
- * Whether the Catalog matches the Score is reported by `unis list` and
- * `unis diff`, which compare through `readCatalog` against a compiled
- * Catalog. State only; no Score is loaded here.
- */
-export async function inspectAgent(agent: AgentId): Promise<AgentReport> {
-  const path = agentConfigPath(agent);
-  if (!isAgentInstalled(agent)) {
-    return { agent, path, state: "skipped", providers: 0, models: 0 };
-  }
-
-  let config: RawConfig;
-  try {
-    config = parseConfig(agent, await Bun.file(path).text());
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    return { agent, path, state: "failed", providers: 0, models: 0, reason };
-  }
-
-  const catalog = catalogOf(config);
-  const { providers, models } = countCatalog(catalog);
-  return {
-    agent,
-    path,
-    state: "installed",
-    providers,
-    models,
-  };
 }

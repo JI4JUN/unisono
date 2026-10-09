@@ -41,7 +41,7 @@ export const RETAINED_SNAPSHOTS = 3;
  * that does not exist. Colons become dashes, and the milliseconds are kept so
  * two syncs in the same second do not collide.
  */
-export function timestamp(): string {
+function timestamp(): string {
   return new Date().toISOString().replaceAll(":", "-");
 }
 
@@ -52,6 +52,8 @@ export function snapshotDir(configBase: string, stamp: string): string {
 
 /** What one Agent's config was before a sync, as far as a restore needs to know. */
 export type SnapshotEntry = {
+  /** The Agent this entry belongs to, as the restore line reports it. */
+  id: string;
   /** Path the snapshot was taken from, so a restore can put it back. */
   from: string;
   /** File name inside the snapshot directory, or null when there was no file. */
@@ -107,7 +109,7 @@ export function takeSnapshot(configBase: string, files: Record<string, string>):
   const entries: Record<string, SnapshotEntry> = {};
   for (const [id, path] of Object.entries(files)) {
     if (!existsSync(path)) {
-      entries[id] = { from: path };
+      entries[id] = { id, from: path };
       continue;
     }
     // Both the contents and the mode are snapshotted: a restore must put back
@@ -115,7 +117,7 @@ export function takeSnapshot(configBase: string, files: Record<string, string>):
     // world-readable.
     const snapshot = `${id}.${extensionOf(path)}`;
     copyContents(path, join(dir, snapshot));
-    entries[id] = { from: path, backed: snapshot, mode: statSync(path).mode & 0o777 };
+    entries[id] = { id, from: path, backed: snapshot, mode: statSync(path).mode & 0o777 };
   }
 
   writeFileSync(manifestPath(stamp, configBase), JSON.stringify({ stamp, entries }, null, 2), {
@@ -159,24 +161,29 @@ export function readManifest(configBase: string, stamp: string): Manifest | null
 }
 
 /**
- * Restores the snapshotted files of one snapshot.
+ * Restores the snapshotted files of one snapshot, and reports what each one was.
  *
  * The stamp is chosen by the caller: no argument means the newest, an argument
  * selects one. A restore puts back the exact bytes and mode it snapshotted, and
  * deletes the files that did not exist — so the state before that sync is
  * genuinely restored, not merely merged with it.
+ *
+ * The entries are returned rather than just the ids, so the caller reports what
+ * happened without reading the manifest a second time. Reading it again would
+ * be a second opinion about the same snapshot, and a rollback line that
+ * disagreed with what was actually restored is worse than no line at all.
  */
-export function restoreSnapshot(configBase: string, stamp: string): string[] {
+export function restoreSnapshot(configBase: string, stamp: string): SnapshotEntry[] {
   const manifest = readManifest(configBase, stamp);
   if (manifest === null) throw new Error(`no snapshot for ${stamp}`);
 
   const dir = snapshotDir(configBase, stamp);
-  const restored: string[] = [];
-  for (const [id, entry] of Object.entries(manifest.entries)) {
+  const restored: SnapshotEntry[] = [];
+  for (const entry of Object.values(manifest.entries)) {
     if (entry.backed === undefined) {
       // The sync created this file, so restoring the prior state means it goes.
       rmSync(entry.from, { force: true });
-      restored.push(id);
+      restored.push(entry);
       continue;
     }
     // Created 0600 before the recorded mode is applied: the restored file holds
@@ -185,7 +192,7 @@ export function restoreSnapshot(configBase: string, stamp: string): string[] {
     // sync write path closes by writing its temporary file 0600.
     writeFileSync(entry.from, readFileSync(join(dir, entry.backed), "utf8"), { mode: 0o600 });
     if (entry.mode !== undefined) chmodSync(entry.from, entry.mode);
-    restored.push(id);
+    restored.push(entry);
   }
   return restored;
 }

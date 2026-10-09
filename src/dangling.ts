@@ -15,6 +15,7 @@
  */
 
 import { isListNode, isObjectNode } from "./guards";
+import { parseAgentDocument } from "./agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -39,6 +40,11 @@ export type DanglingReference = {
  * dangling one, so treating an unreadable sibling as "no defaults" is the
  * only answer that does not invent a problem. The file is only ever read: the
  * takeover replaces a Catalog, and this file holds no Catalog.
+ *
+ * The format dispatch is `parseAgentDocument`'s, the same one `readCatalog`
+ * uses: a sibling and a config for the same Agent are read the same way, and
+ * two copies of that rule would drift the moment one gained a tolerance the
+ * other lacked.
  */
 function readSibling(agent: "omp" | "pi", path: string): Record<string, unknown> {
   let text: string;
@@ -50,7 +56,7 @@ function readSibling(agent: "omp" | "pi", path: string): Record<string, unknown>
 
   let parsed: unknown;
   try {
-    parsed = agent === "omp" ? Bun.YAML.parse(text) : Bun.JSONC.parse(text);
+    parsed = parseAgentDocument(agent, text);
   } catch {
     return {};
   }

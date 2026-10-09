@@ -36,7 +36,7 @@ function maskKey(value: string): string {
  * separate rule per place. Values that are not strings are left alone: an
  * `apiKey` holding something other than text has already failed validation.
  */
-export function maskCredentials(value: unknown): unknown {
+function maskCredentials(value: unknown): unknown {
   if (isListNode(value)) return value.map(maskCredentials);
   if (!isObjectNode(value)) return value;
 
