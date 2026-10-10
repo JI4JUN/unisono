@@ -15,7 +15,7 @@
  * the case that matters most for restoring the prior state: a file that did
  * not exist. Restoring such a file means deleting it, not leaving the copy the
  * sync created — a rollback that leaves behind a newly created file has not
- * restored anything (docs/mvp-spec.md §5.2).
+ * restored anything.
  *
  * Retention is the three most recent snapshots; the fourth rotates the oldest
  * out. More would be a memory of the past the tool does not need: a rollback

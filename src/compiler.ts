@@ -1,7 +1,7 @@
 /**
  * Compiling a Score into the shape an Agent's Catalog holds.
  *
- * Both Agents carry the same Catalog tree (docs/mvp-spec.md §3.1): a
+ * Both Agents carry the same Catalog tree: a
  * `providers` map whose entries hold the native Provider fields and a `models`
  * list. The Score's own fields become those native fields, and the field names
  * differ in exactly one place — the Score says `apiType`, the Catalog says

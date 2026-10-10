@@ -2,8 +2,7 @@
  * Path resolution for the Score and the two supported Agents.
  *
  * Detection is by config file presence: an Agent is installed when its config
- * file exists at its resolved path. There is no enable/disable switch in the
- * MVP (see docs/mvp-spec.md §0).
+ * file exists at its resolved path. There is no enable/disable switch.
  */
 
 import { existsSync } from "node:fs";

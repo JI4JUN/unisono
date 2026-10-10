@@ -48,7 +48,7 @@ Three ideas carry the whole tool:
 
 ## Install
 
-Requires [Bun](https://bun.sh) 1.4+. Zero runtime dependencies, zero devDependencies.
+Requires [Bun](https://bun.sh) 1.4+.
 
 ```bash
 git clone https://github.com/unisono/unisono.git
@@ -176,9 +176,10 @@ never imports internal modules.
 
 ## Documentation
 
-- [MVP spec](docs/mvp-spec.md) — the contract, with its verification checklist
 - [Takeover ADR](docs/adr/0001-takeover-instead-of-merge.md) — why the Catalog is
   replaced rather than merged
+- [CLI framework ADR](docs/adr/0002-citty-cli-framework.md) — why the Post-MVP CLI is
+  driven by `citty`
 - [Glossary](GLOSSARY.md) — Score, Agent, Provider, Model, Catalog, Takeover,
   Override, Sync
 - [PRD & architecture handoff](unisono-handoff.md) — the original design document

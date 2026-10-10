@@ -72,4 +72,4 @@ Issues live in this repo's GitHub Issues; use the `gh` CLI. See `docs/agents/iss
 
 ### Domain docs
 
-Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context: one `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

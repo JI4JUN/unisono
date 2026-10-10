@@ -539,4 +539,29 @@ describe("unis sync — reporting", () => {
     // Nothing was written while the flag was being rejected.
     expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain("stale");
   });
+
+  test("rejects a flag placed before the subcommand rather than dropping it and syncing", () => {
+    writeScore(VALID_SCORE);
+    writeDriftingConfig();
+
+    const { exitCode } = runUnis(sandbox, ["--dry-run", "sync"]);
+
+    expect(exitCode).not.toBe(0);
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain("stale");
+  });
+
+  test("rejects undeclared flags across read-only and draft subcommands", () => {
+    writeScore(VALID_SCORE);
+    writeDriftingConfig();
+
+    for (const argv of [
+      ["diff", "--bogus"],
+      ["list", "--bogus"],
+      ["validate", "--bogus"],
+      ["import", "omp", "--bogus"],
+      ["rollback", "--bogus"],
+    ]) {
+      expect(runUnis(sandbox, argv).exitCode).not.toBe(0);
+    }
+  });
 });

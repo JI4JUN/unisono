@@ -1,11 +1,9 @@
 /**
  * Minimal ambient declarations for the Bun runtime surface this project uses.
  *
- * The project has zero dependencies by policy (docs/mvp-spec.md §6), so
- * `@types/bun` and `@types/node` are not installed. This file declares only
- * the APIs the code actually calls — the same policy the zero-dependency rule
- * applies to the runtime. When a new Bun API is used, add its declaration
- * here rather than adding a dependency.
+ * `@types/bun` and `@types/node` are not installed; this file declares only
+ * the APIs the code actually calls. When a new Bun API is used, add its
+ * declaration here rather than adding a type dependency.
  */
 
 interface BunFile {
@@ -60,6 +58,7 @@ declare const process: {
   env: Record<string, string | undefined>;
   /** Absolute path of the running executable; used to spawn the real CLI. */
   execPath: string;
+  exitCode?: number;
   exit(code: number): never;
   stdout: { write(chunk: string): Promise<number> };
   stderr: { write(chunk: string): Promise<number> };

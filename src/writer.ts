@@ -2,8 +2,7 @@
  * Atomic, symlink-safe, permission-correct file replacement.
  *
  * A config either holds the previous contents or the new ones; there is no
- * window where a reader sees a half-written Catalog. The mechanics, per
- * docs/mvp-spec.md §5:
+ * window where a reader sees a half-written Catalog. The mechanics:
  *
  * - the temporary file is created in the *real* file's directory, so the final
  *   `rename` is a directory-local atomic replace rather than a copy into place

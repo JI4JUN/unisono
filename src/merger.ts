@@ -1,7 +1,7 @@
 /**
  * Catalog comparison.
  *
- * The comparison is semantic (docs/mvp-spec.md §3.5): it walks the parsed
+ * The comparison is semantic: it walks the parsed
  * Catalog, so key order and indentation are never differences. That is what
  * makes a second `unis sync` report `Unchanged` instead of churning the file,
  * and what lets `unis diff` be read at any time without writing anything.

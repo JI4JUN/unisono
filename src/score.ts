@@ -2,7 +2,7 @@
  * The Score contract.
  *
  * The Score is one YAML document holding a `version` and a `providers` map.
- * This module reads and checks it (docs/mvp-spec.md §2.1) — required fields
+ * This module reads and checks it — required fields
  * present, values of the right kind, every referenced credential variable
  * actually exported. `unis validate` and `unis sync` share these checks.
  *
