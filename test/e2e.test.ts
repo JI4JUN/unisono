@@ -493,16 +493,10 @@ providers:
     expect(readFileSync(sandbox.scorePath, "utf8")).toContain("overrides");
     expect(readFileSync(sandbox.scorePath, "utf8")).toContain("compat");
 
-    const validated = runUnis(sandbox, ["validate"], {
-      DEEPSEEK_API_KEY: "sk-fixture-key-87654321",
-      ANTHROPIC_API_KEY: "sk-fixture-ant-12345678",
-    });
+    const validated = runUnis(sandbox, ["validate"]);
     expect(validated.exitCode).toBe(0);
 
-    const synced = runUnis(sandbox, ["sync", "--yes"], {
-      DEEPSEEK_API_KEY: "sk-fixture-key-87654321",
-      ANTHROPIC_API_KEY: "sk-fixture-ant-12345678",
-    });
+    const synced = runUnis(sandbox, ["sync", "--yes"]);
     expect(synced.exitCode).toBe(0);
     expect(catalogOf(ompPath())).toEqual(before);
   });

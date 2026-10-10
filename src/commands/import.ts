@@ -215,8 +215,5 @@ export const importCommand = defineCommand({
         `⚠ [Score] drafted from ${agentId.toUpperCase()} only — ${other.toUpperCase()}'s Catalog was not imported`,
       );
     }
-    writeErr(
-      `⚠ [Score] references credentials by variable name; run "unis validate" to see which are unset`,
-    );
   },
 });

@@ -43,8 +43,7 @@ Three ideas carry the whole tool:
 > [!IMPORTANT]
 > Takeover means hand-edited Catalog entries **do not** survive a sync. Move them into
 > the Score — `unis import` seeds a draft from an existing Catalog to make that
-> a five-second job. The draft names an environment variable for each credential rather
-> than copying the key on disk; export it, or edit the reference.
+> a five-second job.
 
 ## Install
 
@@ -189,5 +188,3 @@ double quotes, 80 columns. Two recommended rules are off — `noExplicitAny` (ci
   driven by `citty`
 - [Glossary](GLOSSARY.md) — Score, Agent, Provider, Model, Catalog, Takeover,
   Override, Sync
-- [PRD & architecture handoff](unisono-handoff.md) — the original design document
-  the MVP was cut from

@@ -17,11 +17,9 @@
  * reads it back from, so `import → sync` reconstitutes the Catalog byte for
  * byte in meaning (criterion 6).
  *
- * Credentials are the deliberate exception to losslessness. A key on disk is
- * already plaintext, and a Score is committed and shared, so the draft names a
- * variable instead of inlining what it read: `${DEEPSEEK_API_KEY}` rather than
- * the key itself. The user edits the reference or exports the variable — which
- * is what `unis validate` reports as the one thing still missing.
+ * Every standard field — including `apiKey` — is preserved directly from the
+ * Catalog (with pi's on-disk escape form reversed first). How credentials are
+ * stored or templated in `score.yaml` is the user's own decision.
  */
 
 import type { Catalog } from "./agent";
@@ -32,10 +30,9 @@ import type { AgentId } from "./paths";
  * Catalog provider keys that keep their own name in the Score.
  *
  * These are the Catalog's spellings, not the Score's: `api` is where the
- * Score says `apiType` (spec §3.4), and the compiler maps between them.
- * `apiKey` is here so the plaintext key is *not* hoisted — it is replaced with
- * a variable reference instead. The mirror table in `src/score.ts` is the
- * Score side of the same line and must be read alongside it.
+ * Score says `apiType`, and the compiler maps between them. The mirror table
+ * in `src/score.ts` is the Score side of the same line and must be read
+ * alongside it.
  */
 const CATALOG_PROVIDER_FIELDS: Record<string, true> = {
   name: true,
@@ -65,22 +62,6 @@ export type ImportFailure = {
 export type ImportResult =
   | { ok: true; draft: string; providers: number; models: number }
   | { ok: false; failures: ImportFailure[] };
-
-/**
- * The variable a provider's credential reference names.
- *
- * Derived from the provider id, because that is the one thing stable about a
- * key's owner: an import of the same Catalog twice proposes the same
- * reference. The prefix keeps a key whose id starts with a digit from
- * producing an invalid variable name.
- */
-function variableName(providerId: string): string {
-  const normalized = providerId
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "_")
-    .replace(/^([0-9])/, "_$1");
-  return `${normalized}_API_KEY`;
-}
 
 /**
  * Splits one Catalog node into the fields the Score names and the ones it
@@ -141,6 +122,7 @@ function toProvider(
   const provider: Record<string, unknown> = {};
   if ("name" in standard) provider["name"] = standard["name"];
   if ("baseUrl" in standard) provider["baseUrl"] = standard["baseUrl"];
+  if ("apiKey" in standard) provider["apiKey"] = standard["apiKey"];
   if ("api" in standard) provider["apiType"] = standard["api"];
   if ("headers" in standard) provider["headers"] = standard["headers"];
   if (Object.keys(override).length > 0)
@@ -263,10 +245,6 @@ export function generateDraft(agent: AgentId, catalog: Catalog): ImportResult {
       failures.push({ provider: id, reason: made.failed });
       continue;
     }
-    // The credential is named, never inlined: the key on disk is plaintext and
-    // the Score is committed, so the draft carries a reference the user answers
-    // by exporting the variable or editing the expression.
-    made.provider["apiKey"] = `\${${variableName(id)}}`;
     providers[id] = made.provider;
   }
 

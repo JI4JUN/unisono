@@ -348,42 +348,24 @@ describe("unis import — reverse Score generation", () => {
     });
   });
 
-  test("does not inline the credential it found into the draft", () => {
+  test("preserves the plaintext apiKey from the Catalog in the generated Score", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
     runUnis(sandbox, ["import"], {}, "\n");
     const text = readFileSync(sandbox.scorePath, "utf8");
 
-    // The import's purpose is a draft, and a Score is committed and shared. The
-    // key on disk is already plaintext, so inlining it would make the Source of
-    // Truth a credential store — the reference names a variable instead.
-    expect(text).not.toContain("sk-omp-key-87654321");
-    expect(text).toContain("DEEPSEEK_API_KEY");
+    expect(text).toContain("sk-omp-key-87654321");
+    expect(text).toContain("sk-omp-ant-12345678");
   });
 
-  test("a generated Score passes unis validate once its variable is exported", () => {
+  test("a generated Score passes unis validate immediately without extra env vars", () => {
     writeFileSync(ompPath(), OMP_FIXTURE);
 
     expect(runUnis(sandbox, ["import"], {}, "\n").exitCode).toBe(0);
 
-    const validated = runUnis(sandbox, ["validate"], {
-      DEEPSEEK_API_KEY: "sk-omp-key-87654321",
-      ANTHROPIC_API_KEY: "sk-omp-ant-12345678",
-    });
+    const validated = runUnis(sandbox, ["validate"]);
     expect(validated.exitCode).toBe(0);
     expect(validated.stdout).toContain("valid (2 providers, 3 models)");
-  });
-
-  test("reports the variable name a missing credential needs", () => {
-    writeFileSync(ompPath(), OMP_FIXTURE);
-
-    expect(runUnis(sandbox, ["import"], {}, "\n").exitCode).toBe(0);
-
-    // The validation failure names the variable, so the reader knows what to
-    // export rather than that something was unset.
-    const unset = runUnis(sandbox, ["validate"]);
-    expect(unset.exitCode).toBe(1);
-    expect(unset.stdout + unset.stderr).toContain("DEEPSEEK_API_KEY");
   });
 
   test("import into a Score path that does not exist yet works", () => {
@@ -426,10 +408,7 @@ providers:
     expect(runUnis(sandbox, ["import"], {}, "\n").exitCode).toBe(0);
     const before = catalogOfAgent(ompPath());
 
-    const synced = runUnis(sandbox, ["sync", "--yes"], {
-      DEEPSEEK_API_KEY: "sk-omp-key-87654321",
-      ANTHROPIC_API_KEY: "sk-omp-ant-12345678",
-    });
+    const synced = runUnis(sandbox, ["sync", "--yes"]);
 
     expect(synced.exitCode).toBe(0);
     // The takeover is wholesale and the import hoists rather than renames, so
@@ -457,9 +436,7 @@ providers:
 
     expect(runUnis(sandbox, ["import"], {}, "\x1b[B\n").exitCode).toBe(0);
 
-    const synced = runUnis(sandbox, ["sync", "--yes"], {
-      PI_API_KEY: "sk-pi-key-12345678",
-    });
+    const synced = runUnis(sandbox, ["sync", "--yes"]);
     expect(synced.exitCode).toBe(0);
     // The model's `piSecret` is not a Score field, so it rode through as
     // `overrides.pi` — and it comes back escaped on disk, which is the form pi
