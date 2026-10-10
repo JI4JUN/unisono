@@ -49,11 +49,23 @@
       "skillPath": "skills/engineering/implement/SKILL.md",
       "computedHash": "2139cfedf24791adbc839aaab6019cff158af1e28bfead020ec6e0ce01b3e74d"
     },
+    "implement-spec": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/implement-spec/SKILL.md",
+      "computedHash": "7a22dd2e60b8fcece478ced9d2533582adf3520d695acd3ab715341535c9e56d"
+    },
     "pr-review-handler": {
       "source": "JI4JUN/pr-review-handler",
       "sourceType": "github",
       "skillPath": "skills/pr-review-handler/SKILL.md",
       "computedHash": "574821a14aabde5075eda31681f89a461714fe6e014958f0f82af14d2637e6fc"
+    },
+    "retro": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/retro/SKILL.md",
+      "computedHash": "33fbc28568e3146f20fd908b12998bc0ab30aa4f4c87288199a40793efa94696"
     },
     "tdd": {
       "source": "mattpocock/skills",
