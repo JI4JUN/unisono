@@ -86,7 +86,12 @@ export function useSandbox(): Sandbox {
  * child that shells out still needs to find things, and `NO_COLOR` keeps the
  * output assertable.
  */
-export function runUnis(sandbox: Sandbox, args: string[], envExtra: Record<string, string> = {}): RunResult {
+export function runUnis(
+  sandbox: Sandbox,
+  args: string[],
+  envExtra: Record<string, string> = {},
+  stdin?: string,
+): RunResult {
   const result = Bun.spawnSync({
     cmd: [process.execPath, ENTRY, ...args],
     env: {
@@ -98,6 +103,7 @@ export function runUnis(sandbox: Sandbox, args: string[], envExtra: Record<strin
       PATH: process.env.PATH ?? "",
       ...envExtra,
     },
+    stdin: stdin !== undefined ? new TextEncoder().encode(stdin) : undefined,
     stdout: "pipe",
     stderr: "pipe",
   });

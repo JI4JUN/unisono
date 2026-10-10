@@ -20,7 +20,8 @@ export const listCommand = defineCommand({
     const scoreResult = await loadScore(scorePath());
     if (!scoreResult.ok) {
       writeErr(`⚠ [Score] not comparable: ${scoreResult.errors[0]}`);
-      for (const agent of AGENT_IDS) reportCompare(await compareAgent(agent), "Synced");
+      for (const agent of AGENT_IDS)
+        reportCompare(await compareAgent(agent), "Synced");
       return;
     }
 

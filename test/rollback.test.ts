@@ -8,9 +8,16 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
-import { runUnis, useSandbox, type Sandbox } from "./harness";
+import { runUnis, type Sandbox, useSandbox } from "./harness";
 
 const sandbox: Sandbox = useSandbox();
 
@@ -34,7 +41,10 @@ providers:
 
 /** An omp config whose Catalog holds an undeclared Provider, so a sync writes. */
 function writeDriftingConfig(): void {
-  writeFileSync(join(sandbox.ompDir, "models.yml"), "providers:\n  stale:\n    models: []\n");
+  writeFileSync(
+    join(sandbox.ompDir, "models.yml"),
+    "providers:\n  stale:\n    models: []\n",
+  );
 }
 
 /**
@@ -48,7 +58,9 @@ function snapshotDirs(): string[] {
   // A directory counts as a snapshot only when it holds a manifest, so a
   // rotation bug that leaves an empty directory does not look retained.
   return readdirSync(sandbox.backupsDir)
-    .filter((stamp) => existsSync(join(sandbox.backupsDir, stamp, "manifest.json")))
+    .filter((stamp) =>
+      existsSync(join(sandbox.backupsDir, stamp, "manifest.json")),
+    )
     .sort();
 }
 
@@ -59,7 +71,12 @@ function snapshotDirs(): string[] {
  * unverified, and a malformed manifest would then read silently wrong.
  */
 function readKey(node: unknown, key: string): unknown {
-  if (node !== null && typeof node === "object" && !Array.isArray(node) && key in node) {
+  if (
+    node !== null &&
+    typeof node === "object" &&
+    !Array.isArray(node) &&
+    key in node
+  ) {
     return (node as Record<string, unknown>)[key];
   }
   return undefined;
@@ -77,10 +94,14 @@ describe("unis sync — snapshot before write", () => {
     expect(dirs).toHaveLength(1);
     // A filesystem-safe ISO timestamp: no colons, which some platforms reject
     // in a directory name, so a snapshot that cannot exist cannot be restored.
-    expect(dirs[0] ?? "").toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$/);
+    expect(dirs[0] ?? "").toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$/,
+    );
     expect(stdout).toContain("backups/");
     // The pre-sync bytes were snapshotted, not the ones this sync wrote.
-    expect(readFileSync(join(sandbox.backupsDir, dirs[0] ?? "", "omp.yml"), "utf8")).toContain("stale");
+    expect(
+      readFileSync(join(sandbox.backupsDir, dirs[0] ?? "", "omp.yml"), "utf8"),
+    ).toContain("stale");
   });
 
   test("records in the manifest what a rollback will restore", () => {
@@ -94,7 +115,10 @@ describe("unis sync — snapshot before write", () => {
     expect(exitCode).toBe(0);
     const dirs = snapshotDirs();
     const manifest: unknown = Bun.JSONC.parse(
-      readFileSync(join(sandbox.backupsDir, dirs[0] ?? "", "manifest.json"), "utf8"),
+      readFileSync(
+        join(sandbox.backupsDir, dirs[0] ?? "", "manifest.json"),
+        "utf8",
+      ),
     );
     const entry = readKey(readKey(manifest, "entries"), "omp");
     expect(readKey(entry, "from")).toBe(join(sandbox.ompDir, "models.yml"));
@@ -128,7 +152,9 @@ describe("unis sync — snapshot before write", () => {
     const stamp = snapshotDirs()[0] ?? "";
     expect(statSync(join(sandbox.backupsDir, stamp)).mode & 0o777).toBe(0o700);
     for (const name of ["omp.yml", "manifest.json"]) {
-      expect(statSync(join(sandbox.backupsDir, stamp, name)).mode & 0o777).toBe(0o600);
+      expect(statSync(join(sandbox.backupsDir, stamp, name)).mode & 0o777).toBe(
+        0o600,
+      );
     }
   });
 
@@ -156,17 +182,24 @@ describe("unis rollback", () => {
     const original = "providers:\n  stale:\n    models: []\n";
     writeFileSync(join(sandbox.ompDir, "models.yml"), original);
     chmodSync(join(sandbox.ompDir, "models.yml"), 0o600);
-    const modeBefore = statSync(join(sandbox.ompDir, "models.yml")).mode & 0o777;
+    const modeBefore =
+      statSync(join(sandbox.ompDir, "models.yml")).mode & 0o777;
 
     runUnis(sandbox, ["sync", "--yes"]);
-    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).not.toBe(original);
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).not.toBe(
+      original,
+    );
 
     const { stdout, exitCode } = runUnis(sandbox, ["rollback"]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Restored");
-    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toBe(original);
-    expect(statSync(join(sandbox.ompDir, "models.yml")).mode & 0o777).toBe(modeBefore);
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toBe(
+      original,
+    );
+    expect(statSync(join(sandbox.ompDir, "models.yml")).mode & 0o777).toBe(
+      modeBefore,
+    );
   });
 
   test("no argument restores the most recent snapshot", () => {
@@ -174,11 +207,17 @@ describe("unis rollback", () => {
     // Two syncs, two snapshots. Each snapshot holds what was on disk *before*
     // its sync, so the newest snapshot alone carries `second:` — and a
     // no-argument rollback must pick exactly that one, not the older `first:`.
-    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers:\n  first:\n    models: []\n");
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      "providers:\n  first:\n    models: []\n",
+    );
     runUnis(sandbox, ["sync", "--yes"]);
     expect(snapshotDirs()).toHaveLength(1);
 
-    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers:\n  second:\n    models: []\n");
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      "providers:\n  second:\n    models: []\n",
+    );
     runUnis(sandbox, ["sync", "--yes"]);
     expect(snapshotDirs()).toHaveLength(2);
 
@@ -187,22 +226,32 @@ describe("unis rollback", () => {
     expect(exitCode).toBe(0);
     // Restoring the older snapshot would bring `first:` back, so this single
     // assertion is what proves the newest one was chosen.
-    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain("second");
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain(
+      "second",
+    );
   });
 
   test("restores a named snapshot specifically", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers:\n  first:\n    models: []\n");
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      "providers:\n  first:\n    models: []\n",
+    );
     runUnis(sandbox, ["sync", "--yes"]);
     const oldest = snapshotDirs()[0] ?? "";
-    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers:\n  second:\n    models: []\n");
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      "providers:\n  second:\n    models: []\n",
+    );
     runUnis(sandbox, ["sync", "--yes"]);
     expect(snapshotDirs()).toHaveLength(2);
 
     const { exitCode } = runUnis(sandbox, ["rollback", oldest]);
 
     expect(exitCode).toBe(0);
-    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain("first");
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain(
+      "first",
+    );
   });
 
   test("--list enumerates the retained snapshots, newest first", () => {
@@ -216,7 +265,9 @@ describe("unis rollback", () => {
     expect(exitCode).toBe(0);
     expect(stdout).toContain(stamp);
     // Newest first: the stamp is listed, and it is the only one.
-    const listed = stdout.split("\n").filter((l) => l.includes("Z") && l.trim().startsWith("20"));
+    const listed = stdout
+      .split("\n")
+      .filter((l) => l.includes("Z") && l.trim().startsWith("20"));
     expect(listed).toHaveLength(1);
   });
 
@@ -227,7 +278,10 @@ describe("unis rollback", () => {
     // snapshots survived, rather than only that three directories remain.
     const taken: string[] = [];
     for (let index = 0; index < 5; index += 1) {
-      writeFileSync(join(sandbox.ompDir, "models.yml"), `providers:\n  stale-${index}:\n    models: []\n`);
+      writeFileSync(
+        join(sandbox.ompDir, "models.yml"),
+        `providers:\n  stale-${index}:\n    models: []\n`,
+      );
       const { exitCode } = runUnis(sandbox, ["sync", "--yes"]);
       expect(exitCode).toBe(0);
       const dirs = snapshotDirs();
@@ -248,7 +302,10 @@ describe("unis rollback", () => {
     // And the survivor that holds `stale-4` really is a snapshot of a takeover,
     // so a rollback of it would put back the state before the fifth sync.
     const manifest: unknown = Bun.JSONC.parse(
-      readFileSync(join(sandbox.backupsDir, taken[4] ?? "", "manifest.json"), "utf8"),
+      readFileSync(
+        join(sandbox.backupsDir, taken[4] ?? "", "manifest.json"),
+        "utf8",
+      ),
     );
     expect(readKey(readKey(manifest, "entries"), "omp")).not.toBe(undefined);
   });
@@ -258,13 +315,18 @@ describe("unis rollback", () => {
     writeDriftingConfig();
     runUnis(sandbox, ["sync", "--yes"]);
 
-    const { stderr, exitCode } = runUnis(sandbox, ["rollback", "2020-01-01T00-00-00.000Z"]);
+    const { stderr, exitCode } = runUnis(sandbox, [
+      "rollback",
+      "2020-01-01T00-00-00.000Z",
+    ]);
 
     expect(exitCode).toBe(1);
     // Names the timestamp asked for, so the user knows what was missing.
     expect(stderr).toContain("2020-01-01T00-00-00.000Z");
     // And nothing was silently restored instead.
-    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain("deepseek");
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toContain(
+      "deepseek",
+    );
   });
 
   test("reports when there is nothing to roll back", () => {

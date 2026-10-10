@@ -9,8 +9,6 @@
 
 import { describe, expect, test } from "bun:test";
 import {
-  chmodSync,
-  existsSync,
   lstatSync,
   readdirSync,
   readFileSync,
@@ -19,7 +17,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { runUnis, useSandbox, type Sandbox } from "./harness";
+import { runUnis, type Sandbox, useSandbox } from "./harness";
 
 const sandbox: Sandbox = useSandbox();
 
@@ -84,7 +82,12 @@ function piConfigText(): string {
  * `unknown` for the test to compare rather than assume.
  */
 function readKey(node: unknown, key: string): unknown {
-  if (node !== null && typeof node === "object" && !Array.isArray(node) && key in node) {
+  if (
+    node !== null &&
+    typeof node === "object" &&
+    !Array.isArray(node) &&
+    key in node
+  ) {
     return (node as Record<string, unknown>)[key];
   }
   return undefined;
@@ -116,7 +119,10 @@ function asMap(value: unknown): Record<string, unknown> {
 
 /** A pi config holding one unrelated provider, for a drifting start. */
 function writeDriftingConfig(): void {
-  writeFileSync(piConfigPath(), JSON.stringify({ providers: { stale: { models: [] } } }, null, 2));
+  writeFileSync(
+    piConfigPath(),
+    JSON.stringify({ providers: { stale: { models: [] } } }, null, 2),
+  );
 }
 
 /**
@@ -185,7 +191,10 @@ providers:
     const { exitCode } = runUnis(sandbox, ["sync", "--yes"]);
     expect(exitCode).toBe(0);
 
-    const omp = readKey(Bun.YAML.parse(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")), "providers");
+    const omp = readKey(
+      Bun.YAML.parse(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")),
+      "providers",
+    );
     const pi = readKey(piDocument(), "providers");
     // Semantically equal, not byte-equal: pi's values are in write form, where
     // a `$` is doubled, and its own reading collapses them back. So the
@@ -194,7 +203,9 @@ providers:
     const ompProviders = omp as Record<string, { models: unknown[] }>;
     const piProviders = pi as Record<string, { models: unknown[] }>;
     expect(Object.keys(ompProviders)).toHaveLength(2);
-    const models = Object.values(piProviders).flatMap((provider) => provider.models);
+    const models = Object.values(piProviders).flatMap(
+      (provider) => provider.models,
+    );
     expect(models).toHaveLength(3);
   });
   test("takes over pi's providers map wholesale", () => {
@@ -214,14 +225,19 @@ providers:
     // and pi reads it. There is no line to append before, so the splice has
     // nothing to hold on to — and dropping the user's node to gain the Catalog
     // is worse than re-emitting with the nodes kept.
-    writeFileSync(piConfigPath(), '{ "settings": { "theme": "dark", "defaultModel": "p/m" } }');
+    writeFileSync(
+      piConfigPath(),
+      '{ "settings": { "theme": "dark", "defaultModel": "p/m" } }',
+    );
 
     expect(runUnis(sandbox, ["sync", "--yes"]).exitCode).toBe(0);
 
     const text = piConfigText();
     expect(() => JSON.parse(text)).not.toThrow();
     const document = readKey(piDocument(), "settings");
-    expect(JSON.stringify(document)).toBe(JSON.stringify({ theme: "dark", defaultModel: "p/m" }));
+    expect(JSON.stringify(document)).toBe(
+      JSON.stringify({ theme: "dark", defaultModel: "p/m" }),
+    );
     // The Catalog came through in full, so the re-emit added it rather than
     // replacing what the user had.
     expect(Object.keys(asMap(piCatalog()))).toContain("deepseek");
@@ -235,7 +251,9 @@ providers:
     // user's node has to survive that.
     writeFileSync(
       piConfigPath(),
-      ['{', '  "settings": {"theme":"dark"},', '  "providers": {} }'].join("\n"),
+      ["{", '  "settings": {"theme":"dark"},', '  "providers": {} }'].join(
+        "\n",
+      ),
     );
 
     expect(runUnis(sandbox, ["sync", "--yes"]).exitCode).toBe(0);
@@ -255,7 +273,7 @@ providers:
       '    "settings": {',
       '        "theme": "dark",',
       '        "defaultModel": "deepseek/deepseek-reasoner",',
-      '    },',
+      "    },",
     ].join("\n");
     writeFileSync(
       piConfigPath(),
@@ -278,7 +296,10 @@ providers:
     expect(text).toContain(settingsBlock);
     const document = readKey(piDocument(), "settings");
     expect(JSON.stringify(document)).toBe(
-      JSON.stringify({ theme: "dark", defaultModel: "deepseek/deepseek-reasoner" }),
+      JSON.stringify({
+        theme: "dark",
+        defaultModel: "deepseek/deepseek-reasoner",
+      }),
     );
   });
 
@@ -290,7 +311,10 @@ providers:
       '      "a": 1,',
       "  },",
     ].join("\n");
-    writeFileSync(piConfigPath(), ["{", settings, '  "providers": {}', "}"].join("\n"));
+    writeFileSync(
+      piConfigPath(),
+      ["{", settings, '  "providers": {}', "}"].join("\n"),
+    );
 
     expect(runUnis(sandbox, ["sync", "--yes"]).exitCode).toBe(0);
     expect(runUnis(sandbox, ["sync", "--yes"]).stdout).toContain("Unchanged");
@@ -324,7 +348,10 @@ providers:
 
   test("leaves an unchanged pi config alone, reporting Unchanged and no write", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(piConfigPath(), JSON.stringify({ providers: COMPILED_CATALOG }, null, 2));
+    writeFileSync(
+      piConfigPath(),
+      JSON.stringify({ providers: COMPILED_CATALOG }, null, 2),
+    );
 
     const before = statSync(piConfigPath()).mtimeMs;
     const { stdout, exitCode } = runUnis(sandbox, ["sync"]);
@@ -346,7 +373,9 @@ providers:
     // commas are the JSONC extras pi tolerates, and standard `JSON.parse` is
     // what rejects them — so a parse that succeeds here is the proof.
     expect(() => JSON.parse(text)).not.toThrow();
-    expect(text).toBe(JSON.stringify({ providers: COMPILED_CATALOG }, null, 2) + "\n");
+    expect(text).toBe(
+      `${JSON.stringify({ providers: COMPILED_CATALOG }, null, 2)}\n`,
+    );
     // The indentation is asserted through the re-serialization rather than a
     // character: two spaces at every depth, including nested objects.
     expect(text.split("\n")[1]).toBe('  "providers": {');
@@ -365,7 +394,10 @@ providers:
   test("writes through a symlink rather than replacing it", () => {
     writeScore(VALID_SCORE);
     const real = join(sandbox.root, "real-models.json");
-    writeFileSync(real, JSON.stringify({ providers: { stale: { models: [] } } }, null, 2));
+    writeFileSync(
+      real,
+      JSON.stringify({ providers: { stale: { models: [] } } }, null, 2),
+    );
     symlinkSync(real, piConfigPath());
 
     const { exitCode } = runUnis(sandbox, ["sync", "--yes"]);
@@ -469,7 +501,13 @@ providers:
     writeFileSync(piConfigPath(), "{}");
     expect(runUnis(sandbox, ["sync", "--yes"]).exitCode).toBe(0);
 
-    writeFileSync(sandbox.scorePath, readFileSync(sandbox.scorePath, "utf8").replace('contextWindow: 10', "contextWindow: 99"));
+    writeFileSync(
+      sandbox.scorePath,
+      readFileSync(sandbox.scorePath, "utf8").replace(
+        "contextWindow: 10",
+        "contextWindow: 99",
+      ),
+    );
     const { stdout } = runUnis(sandbox, ["sync"]);
 
     expect(stdout).toContain("drifts");
@@ -477,7 +515,10 @@ providers:
 
   test("reports both agents in one run, not only the one written last", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(sandbox.ompDir, "models.yml"), ["providers:", "  stale:", "    models: []"].join("\n"));
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      ["providers:", "  stale:", "    models: []"].join("\n"),
+    );
     writeDriftingConfig();
 
     const { stdout, exitCode } = runUnis(sandbox, ["sync", "--yes"]);
@@ -492,7 +533,10 @@ providers:
     writeScore(VALID_SCORE);
     // omp is aligned, so the refusal names pi's Catalog as the one that would
     // lose Providers — the gate is per-Agent, and this is the way to show it.
-    writeFileSync(join(sandbox.ompDir, "models.yml"), Bun.YAML.stringify({ providers: COMPILED_CATALOG }, null, 2));
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      Bun.YAML.stringify({ providers: COMPILED_CATALOG }, null, 2),
+    );
     writeDriftingConfig();
 
     const { stdout, stderr, exitCode } = runUnis(sandbox, ["sync"]);
@@ -503,8 +547,15 @@ providers:
 
   test("leaves a gated pi config untouched", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(sandbox.ompDir, "models.yml"), ["providers:", "  synced:", "    models: []"].join("\n"));
-    const drifting = JSON.stringify({ providers: { stale: { models: [] } } }, null, 2);
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      ["providers:", "  synced:", "    models: []"].join("\n"),
+    );
+    const drifting = JSON.stringify(
+      { providers: { stale: { models: [] } } },
+      null,
+      2,
+    );
     writeFileSync(piConfigPath(), drifting);
 
     const { exitCode } = runUnis(sandbox, ["sync"]);
@@ -524,7 +575,14 @@ providers:
     const backups = join(sandbox.root, "config", "unisono", "backups");
     const stamps = readdirSync(backups);
     expect(stamps).toHaveLength(1);
-    const manifest = readKey(Bun.JSONC.parse(readFileSync(join(backups, stamps[0]!, "manifest.json"), "utf8")), "entries");
+    const stamp = stamps[0];
+    if (stamp === undefined) throw new Error("expected a backup stamp");
+    const manifest = readKey(
+      Bun.JSONC.parse(
+        readFileSync(join(backups, stamp, "manifest.json"), "utf8"),
+      ),
+      "entries",
+    );
     expect(Object.keys(manifest as Record<string, unknown>)).toContain("pi");
   });
 });
@@ -669,19 +727,27 @@ providers:
 
     expect(exitCode).toBe(0);
     const catalog = piCatalog();
-    expect(Object.keys(catalog as Record<string, unknown>)).toContain("!dollar$id");
+    expect(Object.keys(catalog as Record<string, unknown>)).toContain(
+      "!dollar$id",
+    );
   });
 });
 
 describe("unis sync — pi dangling references", () => {
   /** The sibling settings file, written beside pi's config. */
   function writeSettings(node: Record<string, unknown>): void {
-    writeFileSync(join(sandbox.piDir, "settings.json"), JSON.stringify(node, null, 2));
+    writeFileSync(
+      join(sandbox.piDir, "settings.json"),
+      JSON.stringify(node, null, 2),
+    );
   }
 
   test("warns when settings.json references a provider this sync removes", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(piConfigPath(), JSON.stringify({ providers: { stale: { models: [] } } }, null, 2));
+    writeFileSync(
+      piConfigPath(),
+      JSON.stringify({ providers: { stale: { models: [] } } }, null, 2),
+    );
     writeSettings({ defaultProvider: "stale", defaultModel: "stale/m1" });
 
     const { stdout, stderr, exitCode } = runUnis(sandbox, ["sync", "--yes"]);
@@ -694,20 +760,31 @@ describe("unis sync — pi dangling references", () => {
 
   test("never rewrites settings.json", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(piConfigPath(), JSON.stringify({ providers: { stale: { models: [] } } }, null, 2));
+    writeFileSync(
+      piConfigPath(),
+      JSON.stringify({ providers: { stale: { models: [] } } }, null, 2),
+    );
     const settings = { defaultProvider: "stale", defaultModel: "stale/m1" };
     const before = JSON.stringify(settings, null, 2);
     writeSettings(settings);
 
     runUnis(sandbox, ["sync", "--yes"]);
 
-    expect(readFileSync(join(sandbox.piDir, "settings.json"), "utf8")).toBe(before);
+    expect(readFileSync(join(sandbox.piDir, "settings.json"), "utf8")).toBe(
+      before,
+    );
   });
 
   test("warns only, so a run whose sole problem is a warning exits 0", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(sandbox.ompDir, "models.yml"), Bun.YAML.stringify({ providers: COMPILED_CATALOG }, null, 2));
-    writeFileSync(piConfigPath(), JSON.stringify({ providers: { stale: { models: [] } } }, null, 2));
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      Bun.YAML.stringify({ providers: COMPILED_CATALOG }, null, 2),
+    );
+    writeFileSync(
+      piConfigPath(),
+      JSON.stringify({ providers: { stale: { models: [] } } }, null, 2),
+    );
     writeSettings({ defaultModel: "stale/m1" });
 
     const file = join(sandbox.piDir, "settings.json");
@@ -722,9 +799,12 @@ describe("unis sync — pi dangling references", () => {
     writeScore(VALID_SCORE);
     writeFileSync(
       piConfigPath(),
-      JSON.stringify({ providers: { ...COMPILED_CATALOG } }, null, 2) + "\n",
+      `${JSON.stringify({ providers: { ...COMPILED_CATALOG } }, null, 2)}\n`,
     );
-    writeSettings({ defaultProvider: "deepseek", defaultModel: "deepseek/deepseek-reasoner" });
+    writeSettings({
+      defaultProvider: "deepseek",
+      defaultModel: "deepseek/deepseek-reasoner",
+    });
 
     const { stdout, stderr } = runUnis(sandbox, ["sync"]);
 
@@ -735,8 +815,14 @@ describe("unis sync — pi dangling references", () => {
 describe("unis validate — dangling references are visible before a sync", () => {
   test("warns during validate about a dangling default", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(piConfigPath(), JSON.stringify({ providers: { stale: { models: [] } } }, null, 2));
-    writeFileSync(join(sandbox.piDir, "settings.json"), JSON.stringify({ defaultProvider: "stale" }, null, 2));
+    writeFileSync(
+      piConfigPath(),
+      JSON.stringify({ providers: { stale: { models: [] } } }, null, 2),
+    );
+    writeFileSync(
+      join(sandbox.piDir, "settings.json"),
+      JSON.stringify({ defaultProvider: "stale" }, null, 2),
+    );
 
     const { stdout, stderr, exitCode } = runUnis(sandbox, ["validate"]);
 
@@ -765,17 +851,26 @@ describe("unis validate — dangling references are visible before a sync", () =
     expect(exitCode).toBe(0);
     const all = stdout + stderr;
     expect(all).toContain("modelRoles references removed provider 'gone-old'");
-    expect(all).toContain("enabledModels references removed provider 'gone-two'");
+    expect(all).toContain(
+      "enabledModels references removed provider 'gone-two'",
+    );
     expect(all).not.toContain("'deepseek'");
   });
 
   test("never rewrites omp's config.yml", () => {
     writeScore(VALID_SCORE);
-    const before = ["modelRoles:", "  gone-old/m1: creative", "enabledModels:", "  - gone-two/m2"].join("\n");
+    const before = [
+      "modelRoles:",
+      "  gone-old/m1: creative",
+      "enabledModels:",
+      "  - gone-two/m2",
+    ].join("\n");
     writeFileSync(join(sandbox.ompDir, "config.yml"), before);
 
     runUnis(sandbox, ["validate"]);
 
-    expect(readFileSync(join(sandbox.ompDir, "config.yml"), "utf8")).toBe(before);
+    expect(readFileSync(join(sandbox.ompDir, "config.yml"), "utf8")).toBe(
+      before,
+    );
   });
 });

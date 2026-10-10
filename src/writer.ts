@@ -15,7 +15,13 @@
  *   than gets overwritten
  */
 
-import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 /** How an atomic replace turned out. */
@@ -67,13 +73,21 @@ export function resolveRealPath(path: string): string {
  * silently discarded. A config that did not exist before has no hash on disk,
  * and `null` matches that absence — which is how a first sync creates a file.
  */
-export function atomicWrite(path: string, content: string, expectedSha256: string | null): WriteResult {
+export function atomicWrite(
+  path: string,
+  content: string,
+  expectedSha256: string | null,
+): WriteResult {
   const real = resolveRealPath(path);
 
   const current = hashFile(real);
-  if (current !== expectedSha256) return { wrote: false, reason: "changed-underneath" };
+  if (current !== expectedSha256)
+    return { wrote: false, reason: "changed-underneath" };
 
-  const temporary = join(dirname(real), `.${basename(real)}.unis-${Bun.randomUUIDv7()}`);
+  const temporary = join(
+    dirname(real),
+    `.${basename(real)}.unis-${Bun.randomUUIDv7()}`,
+  );
   writeFileSync(temporary, content, { mode: 0o600 });
   try {
     renameSync(temporary, real);

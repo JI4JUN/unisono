@@ -15,10 +15,19 @@ export const validateCommand = defineCommand({
     const loaded = await loadValidScore();
     if (loaded === null) return;
 
-    for (const warning of danglingWarnings(loaded.score)) writeErr(`⚠ ${warning}`);
+    for (const warning of danglingWarnings(loaded.score))
+      writeErr(`⚠ ${warning}`);
 
     const providers = Object.values(loaded.score.providers);
-    const models = providers.reduce((total, provider) => total + provider.models.length, 0);
-    line("ok", "Score", loaded.path, `valid (${providers.length} providers, ${models} models)`);
+    const models = providers.reduce(
+      (total, provider) => total + provider.models.length,
+      0,
+    );
+    line(
+      "ok",
+      "Score",
+      loaded.path,
+      `valid (${providers.length} providers, ${models} models)`,
+    );
   },
 });

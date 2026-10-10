@@ -14,10 +14,10 @@
  * writes it and after one.
  */
 
-import { isListNode, isObjectNode } from "./guards";
-import { parseAgentDocument } from "./agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseAgentDocument } from "./agent";
+import { isListNode, isObjectNode } from "./guards";
 
 /** A reference that no longer resolves, for the warning surface. */
 export type DanglingReference = {
@@ -46,7 +46,10 @@ export type DanglingReference = {
  * two copies of that rule would drift the moment one gained a tolerance the
  * other lacked.
  */
-function readSibling(agent: "omp" | "pi", path: string): Record<string, unknown> {
+function readSibling(
+  agent: "omp" | "pi",
+  path: string,
+): Record<string, unknown> {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
@@ -64,7 +67,10 @@ function readSibling(agent: "omp" | "pi", path: string): Record<string, unknown>
 }
 
 /** Whether `reference` names a provider the Catalog still declares. */
-function survivesProvider(reference: string, providers: Record<string, unknown>): boolean {
+function survivesProvider(
+  reference: string,
+  providers: Record<string, unknown>,
+): boolean {
   return Object.hasOwn(providers, reference);
 }
 
@@ -80,7 +86,8 @@ function providerOf(reference: string): string {
  */
 function referencesOf(entry: unknown): string[] {
   if (typeof entry === "string") return [entry];
-  if (isListNode(entry)) return entry.filter((item): item is string => typeof item === "string");
+  if (isListNode(entry))
+    return entry.filter((item): item is string => typeof item === "string");
   if (isObjectNode(entry)) return Object.keys(entry);
   return [];
 }
@@ -94,7 +101,10 @@ function referencesOf(entry: unknown): string[] {
  * provider was removed is dangling whatever its model, and naming the
  * provider is what a reader can act on.
  */
-export function ompDanglingReferences(dir: string, providers: Record<string, unknown>): DanglingReference[] {
+export function ompDanglingReferences(
+  dir: string,
+  providers: Record<string, unknown>,
+): DanglingReference[] {
   const config = readSibling("omp", join(dir, "config.yml"));
   const found: DanglingReference[] = [];
 
@@ -119,20 +129,33 @@ export function ompDanglingReferences(dir: string, providers: Record<string, unk
  * the model half cannot dangle without the provider it hangs from having
  * already gone, which the check on the provider half reports.
  */
-export function piDanglingReferences(dir: string, providers: Record<string, unknown>): DanglingReference[] {
+export function piDanglingReferences(
+  dir: string,
+  providers: Record<string, unknown>,
+): DanglingReference[] {
   const settings = readSibling("pi", join(dir, "settings.json"));
   const found: DanglingReference[] = [];
 
   const direct = settings["defaultProvider"];
   if (typeof direct === "string" && !survivesProvider(direct, providers)) {
-    found.push({ agent: "pi", setting: "defaultProvider", reference: direct, provider: direct });
+    found.push({
+      agent: "pi",
+      setting: "defaultProvider",
+      reference: direct,
+      provider: direct,
+    });
   }
 
   const model = settings["defaultModel"];
   if (typeof model === "string") {
     const provider = providerOf(model);
     if (!survivesProvider(provider, providers)) {
-      found.push({ agent: "pi", setting: "defaultModel", reference: model, provider });
+      found.push({
+        agent: "pi",
+        setting: "defaultModel",
+        reference: model,
+        provider,
+      });
     }
   }
 

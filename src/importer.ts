@@ -24,9 +24,9 @@
  * is what `unis validate` reports as the one thing still missing.
  */
 
+import type { Catalog } from "./agent";
 import { isListNode, isObjectNode } from "./guards";
 import type { AgentId } from "./paths";
-import type { Catalog } from "./agent";
 
 /**
  * Catalog provider keys that keep their own name in the Score.
@@ -75,7 +75,10 @@ export type ImportResult =
  * producing an invalid variable name.
  */
 function variableName(providerId: string): string {
-  const normalized = providerId.toUpperCase().replace(/[^A-Z0-9]/g, "_").replace(/^([0-9])/, "_$1");
+  const normalized = providerId
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "_")
+    .replace(/^([0-9])/, "_$1");
   return `${normalized}_API_KEY`;
 }
 
@@ -87,7 +90,10 @@ function variableName(providerId: string): string {
  * whole, whatever it holds, because a compiled Override can hold any shape and
  * the Score schema says nothing about it.
  */
-function splitNode(node: Record<string, unknown>, known: Record<string, true>): {
+function splitNode(
+  node: Record<string, unknown>,
+  known: Record<string, true>,
+): {
   standard: Record<string, unknown>;
   override: Record<string, unknown>;
 } {
@@ -102,9 +108,14 @@ function splitNode(node: Record<string, unknown>, known: Record<string, true>): 
 }
 
 /** One Catalog model as a Score model. */
-function toModel(agent: AgentId, entry: Record<string, unknown>): Record<string, unknown> {
+function toModel(
+  agent: AgentId,
+  entry: Record<string, unknown>,
+): Record<string, unknown> {
   const { standard, override } = splitNode(entry, CATALOG_MODEL_FIELDS);
-  return Object.keys(override).length === 0 ? standard : { ...standard, overrides: { [agent]: override } };
+  return Object.keys(override).length === 0
+    ? standard
+    : { ...standard, overrides: { [agent]: override } };
 }
 
 /**
@@ -132,12 +143,14 @@ function toProvider(
   if ("baseUrl" in standard) provider["baseUrl"] = standard["baseUrl"];
   if ("api" in standard) provider["apiType"] = standard["api"];
   if ("headers" in standard) provider["headers"] = standard["headers"];
-  if (Object.keys(override).length > 0) provider["overrides"] = { [agent]: override };
+  if (Object.keys(override).length > 0)
+    provider["overrides"] = { [agent]: override };
 
   const models: Record<string, unknown>[] = [];
   if (isListNode(standard["models"])) {
     for (const [index, item] of standard["models"].entries()) {
-      if (!isObjectNode(item)) return { failed: `models[${index}] is not a map` };
+      if (!isObjectNode(item))
+        return { failed: `models[${index}] is not a map` };
       models.push(toModel(agent, item));
     }
   }
@@ -181,10 +194,18 @@ function unescapePi(value: unknown): unknown {
 
 /** The same walk, applied to a whole node. */
 function unescapeNode(node: Record<string, unknown> | unknown[]): unknown {
-  if (isListNode(node)) return node.map((item) => (isObjectNode(item) ? unescapeNode(item) : unescapePi(item)));
+  if (isListNode(node))
+    return node.map((item) =>
+      isObjectNode(item) ? unescapeNode(item) : unescapePi(item),
+    );
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(node)) {
-    out[key] = typeof value === "string" ? unescapePi(value) : isObjectNode(value) || isListNode(value) ? unescapeNode(value) : value;
+    out[key] =
+      typeof value === "string"
+        ? unescapePi(value)
+        : isObjectNode(value) || isListNode(value)
+          ? unescapeNode(value)
+          : value;
   }
   return out;
 }
@@ -199,7 +220,10 @@ function unescapeNode(node: Record<string, unknown> | unknown[]): unknown {
  * a value that its own Score said nothing about, changed by the import that
  * was supposed to describe it faithfully.
  */
-function fromAgent(agent: AgentId, node: Record<string, unknown>): Record<string, unknown> {
+function fromAgent(
+  agent: AgentId,
+  node: Record<string, unknown>,
+): Record<string, unknown> {
   if (agent !== "pi") return node;
   const walked = unescapeNode(node);
   // The walk was given a map, so it gives one back. Guarded rather than cast,
@@ -227,7 +251,10 @@ export function generateDraft(agent: AgentId, catalog: Catalog): ImportResult {
 
     const node = fromAgent(agent, entry);
     if (!isListNode(node["models"]) || node["models"].length === 0) {
-      failures.push({ provider: id, reason: "a Score provider must declare at least one model" });
+      failures.push({
+        provider: id,
+        reason: "a Score provider must declare at least one model",
+      });
       continue;
     }
 

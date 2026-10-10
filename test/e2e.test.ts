@@ -13,10 +13,17 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { runUnis, useSandbox, type Sandbox } from "./harness";
+import { runUnis, type Sandbox, useSandbox } from "./harness";
 
 const sandbox: Sandbox = useSandbox();
 const ompPath = () => join(sandbox.ompDir, "models.yml");
@@ -40,7 +47,12 @@ function snapshotStamps(): string[] {
  * the test to compare rather than assume.
  */
 function readKey(node: unknown, key: string): unknown {
-  if (node !== null && typeof node === "object" && !Array.isArray(node) && key in node) {
+  if (
+    node !== null &&
+    typeof node === "object" &&
+    !Array.isArray(node) &&
+    key in node
+  ) {
     return (node as Record<string, unknown>)[key];
   }
   return undefined;
@@ -67,7 +79,9 @@ function asList(value: unknown): unknown[] {
 /** An Agent's Catalog as parsed from its own format. */
 function catalogOf(path: string, jsonc = false): Record<string, unknown> {
   const text = readFileSync(path, "utf8");
-  return asMap(readKey(jsonc ? Bun.JSONC.parse(text) : Bun.YAML.parse(text), "providers"));
+  return asMap(
+    readKey(jsonc ? Bun.JSONC.parse(text) : Bun.YAML.parse(text), "providers"),
+  );
 }
 
 /**
@@ -81,7 +95,9 @@ function catalogOf(path: string, jsonc = false): Record<string, unknown> {
  * contract does promise is that the fields both Agents carry say the same thing,
  * so those are what this keeps.
  */
-function sharedFields(catalog: Record<string, unknown>): Record<string, unknown> {
+function sharedFields(
+  catalog: Record<string, unknown>,
+): Record<string, unknown> {
   const keep: Record<string, true> = {
     models: true,
     name: true,
@@ -106,12 +122,19 @@ function sharedFields(catalog: Record<string, unknown>): Record<string, unknown>
 }
 
 /** A tree keeping only the entries `keep` names, at every depth. */
-function filterTo(node: Record<string, unknown>, keep: Record<string, true>): Record<string, unknown> {
+function filterTo(
+  node: Record<string, unknown>,
+  keep: Record<string, true>,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(node)) {
     if (!(key in keep)) continue;
     out[key] = Array.isArray(value)
-      ? value.map((item) => (typeof item === "object" && item !== null ? filterTo(asMap(item), keep) : item))
+      ? value.map((item) =>
+          typeof item === "object" && item !== null
+            ? filterTo(asMap(item), keep)
+            : item,
+        )
       : typeof value === "object" && value !== null
         ? filterTo(asMap(value), keep)
         : value;
@@ -187,20 +210,33 @@ describe("end-to-end contract", () => {
     // omp's alone (spec §3.4 shows `compat` on omp's output and none of it on
     // pi's), so a comparison including them would be asserting something the
     // contract does not promise.
-    expect(sharedFields(catalogOf(ompPath()))).toEqual(sharedFields(catalogOf(piPath(), true)));
+    expect(sharedFields(catalogOf(ompPath()))).toEqual(
+      sharedFields(catalogOf(piPath(), true)),
+    );
     // And in the compiled shape: `apiType` became `api`.
-    expect(asMap(catalogOf(ompPath())["deepseek"])["api"]).toBe("openai-completions");
-    expect(asMap(catalogOf(ompPath())["anthropic"])["api"]).toBe("anthropic-messages");
+    expect(asMap(catalogOf(ompPath())["deepseek"])["api"]).toBe(
+      "openai-completions",
+    );
+    expect(asMap(catalogOf(ompPath())["anthropic"])["api"]).toBe(
+      "anthropic-messages",
+    );
     // The Override landed where omp reads it, on the provider and on the model.
     const deepseek = asMap(catalogOf(ompPath())["deepseek"]);
     expect(deepseek["compat"]).toEqual({ supportsDeveloperRole: false });
     const reasoner = asMap(asList(deepseek["models"])[1]);
-    expect(reasoner["cost"]).toEqual({ input: 0.55, output: 2.19, cacheRead: 0.14, cacheWrite: 0 });
+    expect(reasoner["cost"]).toEqual({
+      input: 0.55,
+      output: 2.19,
+      cacheRead: 0.14,
+      cacheWrite: 0,
+    });
     // Non-Catalog bytes: omp's whole `modelOverrides` node survived exactly,
     // and so did pi's comment, its indentation, and its trailing comma. The
     // Catalog is what the sync inserted, so what is asserted is that the user's
     // own lines are still there, byte for byte, and that the values still read.
-    expect(readFileSync(ompPath(), "utf8")).toContain("modelOverrides:\n  role: hand\n");
+    expect(readFileSync(ompPath(), "utf8")).toContain(
+      "modelOverrides:\n  role: hand\n",
+    );
     const piText = readFileSync(piPath(), "utf8");
     expect(piText).toContain("  // pi's own node\n");
     expect(piText).toContain(
@@ -247,7 +283,10 @@ describe("end-to-end contract", () => {
       reordered[id] = asMap(providers)[id];
     }
     const rewritten = Bun.YAML.stringify(
-      { modelOverrides: readKey(document, "modelOverrides"), providers: reordered },
+      {
+        modelOverrides: readKey(document, "modelOverrides"),
+        providers: reordered,
+      },
       null,
       2,
     );
@@ -266,12 +305,30 @@ describe("end-to-end contract", () => {
     // The §2.1 table, one per class. A Score with only warnings is separate,
     // below, and is the case that must not be confused with these.
     const classes: Array<[string, string]> = [
-      ["version", `version: "2"\nproviders:\n  p:\n    name: "P"\n    baseUrl: "https://x/v1"\n    apiKey: "sk-1"\n    apiType: "openai-completions"\n    models:\n      - id: "m"\n        name: "M"\n        contextWindow: 1\n`],
+      [
+        "version",
+        `version: "2"\nproviders:\n  p:\n    name: "P"\n    baseUrl: "https://x/v1"\n    apiKey: "sk-1"\n    apiType: "openai-completions"\n    models:\n      - id: "m"\n        name: "M"\n        contextWindow: 1\n`,
+      ],
       ["name", EXAMPLE_SCORE.replace('    name: "DeepSeek Official"\n', "")],
-      ["duplicated", EXAMPLE_SCORE.replace('      - id: "deepseek-reasoner"', '      - id: "deepseek-chat"')],
+      [
+        "duplicated",
+        EXAMPLE_SCORE.replace(
+          '      - id: "deepseek-reasoner"',
+          '      - id: "deepseek-chat"',
+        ),
+      ],
       ["apiType", EXAMPLE_SCORE.replace("openai-completions", "not-an-api")],
-      ["contextWindow", EXAMPLE_SCORE.replace("contextWindow: 65536", "contextWindow: 0")],
-      ["UNIS_E2E_UNSET_KEY", EXAMPLE_SCORE.replace('apiKey: "sk-sample-key-1234567890"', 'apiKey: "${UNIS_E2E_UNSET_KEY}"')],
+      [
+        "contextWindow",
+        EXAMPLE_SCORE.replace("contextWindow: 65536", "contextWindow: 0"),
+      ],
+      [
+        "UNIS_E2E_UNSET_KEY",
+        EXAMPLE_SCORE.replace(
+          'apiKey: "sk-sample-key-1234567890"',
+          'apiKey: "${UNIS_E2E_UNSET_KEY}"',
+        ),
+      ],
     ];
 
     for (const [want, score] of classes) {
@@ -288,7 +345,12 @@ describe("end-to-end contract", () => {
   test("a Score with only warnings exits 0", () => {
     // The unknown-key rule is a warning, not a failure, so a Score that trips
     // nothing else is valid — that is the one case exit 0 has to hold.
-    writeScore(EXAMPLE_SCORE.replace('    apiType: "openai-completions"\n', '    apiType: "openai-completions"\n    extraField: "typo"\n'));
+    writeScore(
+      EXAMPLE_SCORE.replace(
+        '    apiType: "openai-completions"\n',
+        '    apiType: "openai-completions"\n    extraField: "typo"\n',
+      ),
+    );
 
     const result = runUnis(sandbox, ["validate"]);
 
@@ -299,7 +361,10 @@ describe("end-to-end contract", () => {
   test("a takeover that would delete an undeclared provider is refused, writes nothing, takes no snapshot", () => {
     writeScore(EXAMPLE_SCORE);
     installBothAgents();
-    writeFileSync(ompPath(), `providers:\n  hand-written:\n    name: "Hand Written"\n    baseUrl: "https://x/v1"\n    apiKey: "sk-h"\n    api: "openai-completions"\n    models:\n      - id: "m"\n        name: "M"\n        contextWindow: 4096\n`);
+    writeFileSync(
+      ompPath(),
+      `providers:\n  hand-written:\n    name: "Hand Written"\n    baseUrl: "https://x/v1"\n    apiKey: "sk-h"\n    api: "openai-completions"\n    models:\n      - id: "m"\n        name: "M"\n        contextWindow: 4096\n`,
+    );
     const guarded = readFileSync(ompPath(), "utf8");
 
     const refused = runUnis(sandbox, ["sync"]);
@@ -347,7 +412,13 @@ describe("end-to-end contract", () => {
     );
     writeFileSync(
       join(sandbox.ompDir, "config.yml"),
-      ["modelRoles:", "  fast: absent/deepseek-chat", "enabledModels:", "  - absent/x", ""].join("\n"),
+      [
+        "modelRoles:",
+        "  fast: absent/deepseek-chat",
+        "enabledModels:",
+        "  - absent/x",
+        "",
+      ].join("\n"),
     );
 
     const result = runUnis(sandbox, ["sync", "--yes"]);
@@ -358,16 +429,26 @@ describe("end-to-end contract", () => {
     // `enabledModels` is read by its items, so the provider half of its item is
     // what dangles. Either shape resolves, and the provider is what a reader
     // can act on.
-    expect(result.stdout + result.stderr).toContain("defaultProvider references removed provider 'absent'");
-    expect(result.stdout + result.stderr).toContain("defaultModel references removed provider 'absent'");
-    expect(result.stdout + result.stderr).toContain("modelRoles references removed provider 'fast'");
-    expect(result.stdout + result.stderr).toContain("enabledModels references removed provider 'absent'");
+    expect(result.stdout + result.stderr).toContain(
+      "defaultProvider references removed provider 'absent'",
+    );
+    expect(result.stdout + result.stderr).toContain(
+      "defaultModel references removed provider 'absent'",
+    );
+    expect(result.stdout + result.stderr).toContain(
+      "modelRoles references removed provider 'fast'",
+    );
+    expect(result.stdout + result.stderr).toContain(
+      "enabledModels references removed provider 'absent'",
+    );
     // A warning is the whole report: the settings are the user's, and the
     // takeover replaces only a Catalog. So the sibling files are untouched.
     expect(readFileSync(join(sandbox.piDir, "settings.json"), "utf8")).toBe(
       JSON.stringify({ defaultProvider: "absent", defaultModel: "absent/m" }),
     );
-    expect(readFileSync(join(sandbox.ompDir, "config.yml"), "utf8")).toContain("modelRoles");
+    expect(readFileSync(join(sandbox.ompDir, "config.yml"), "utf8")).toContain(
+      "modelRoles",
+    );
   });
 
   test("import from the omp fixture round-trips through validate and sync", () => {
@@ -406,7 +487,7 @@ providers:
     writeFileSync(ompPath(), fixture);
     const before = catalogOf(ompPath());
 
-    expect(runUnis(sandbox, ["import", "omp"]).exitCode).toBe(0);
+    expect(runUnis(sandbox, ["import"], {}, "\n").exitCode).toBe(0);
     // The agent-specific fields rode through as `overrides.omp`, which is what
     // the round-trip depends on.
     expect(readFileSync(sandbox.scorePath, "utf8")).toContain("overrides");
@@ -518,7 +599,10 @@ providers:
     // The observable check is a relocation the tool is meant to honour — pointed
     // somewhere the test then reads back — plus a sentinel beside it that has to
     // survive untouched.
-    const elsewhere = join(dirname(sandbox.root), `${basename(sandbox.root)}-elsewhere`);
+    const elsewhere = join(
+      dirname(sandbox.root),
+      `${basename(sandbox.root)}-elsewhere`,
+    );
     mkdirSync(join(elsewhere, "omp"), { recursive: true });
     mkdirSync(join(elsewhere, "pi"), { recursive: true });
 
@@ -535,8 +619,12 @@ providers:
     // is what makes the rest of the isolation property hold. Had the tool
     // written to its own default paths instead, the files would be outside this
     // temporary tree entirely.
-    expect(existsSync(join(sandbox.root, "omp", "agent", "models.yml"))).toBe(true);
-    expect(readFileSync(ompPath(), "utf8")).toBe("modelOverrides:\n  role: hand\n");
+    expect(existsSync(join(sandbox.root, "omp", "agent", "models.yml"))).toBe(
+      true,
+    );
+    expect(readFileSync(ompPath(), "utf8")).toBe(
+      "modelOverrides:\n  role: hand\n",
+    );
   });
 
   test("a converged sync is repeatable within its own tree", () => {

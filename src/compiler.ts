@@ -12,9 +12,9 @@
  * what lets `unis diff` reason about "what would omp read" without a write.
  */
 
+import type { Catalog } from "./agent";
 import { isObjectNode } from "./guards";
 import { deepMerge } from "./merger";
-import type { Catalog } from "./agent";
 import type { Score } from "./score";
 
 /**
@@ -24,7 +24,10 @@ import type { Score } from "./score";
  * is then the standard mapping alone. An Override that is not a map has no
  * fields to merge and is ignored.
  */
-function overridesFor(node: { overrides?: Record<string, unknown> }, agent: string): Record<string, unknown> {
+function overridesFor(
+  node: { overrides?: Record<string, unknown> },
+  agent: string,
+): Record<string, unknown> {
   const block = node.overrides?.[agent];
   return isObjectNode(block) ? block : {};
 }

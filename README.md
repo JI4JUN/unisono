@@ -42,7 +42,7 @@ Three ideas carry the whole tool:
 
 > [!IMPORTANT]
 > Takeover means hand-edited Catalog entries **do not** survive a sync. Move them into
-> the Score — `unis import <agent>` seeds a draft from an existing Catalog to make that
+> the Score — `unis import` seeds a draft from an existing Catalog to make that
 > a five-second job. The draft names an environment variable for each credential rather
 > than copying the key on disk; export it, or edit the reference.
 
@@ -66,7 +66,7 @@ bun run unis -- list
 
 ```bash
 # 1. Generate a draft Score from a config you already have
-unis import omp          # or: unis import pi
+unis import              # interactively select omp or pi (↑/↓ + Enter)
 
 # 2. Check it, then compile it into both Agents
 unis validate
@@ -124,7 +124,7 @@ unis sync --dry-run       # preview the change, write nothing
 unis diff                 # Score-compiled Catalog vs the on-disk Catalogs
 unis validate             # check the Score and expand credential references
 unis list                 # each Agent's path, presence, and Catalog counts
-unis import <agent>       # generate a Score draft (omp | pi)
+unis import               # interactively select an Agent and generate a Score draft
 unis rollback             # restore the most recent snapshot
 unis rollback --list      # list retained snapshots
 unis rollback <ts>        # restore a specific snapshot
@@ -166,13 +166,20 @@ that no longer exists. Unisono detects this and warns — it does not edit them:
 ## Development
 
 ```bash
-bun test          # 166 tests, 0 fail
+bun test          # 168 tests, 0 fail
 bun run typecheck # tsc --noEmit
+bun run lint      # biome check (lint + format + import order)
+bun run format    # biome format --write
 ```
 
 The test suite drives the real binary as a subprocess against a per-test temporary
 tree and asserts the files, permissions, output, and exit codes it leaves behind — it
 never imports internal modules.
+
+Biome (`biome.json`) is configured to the style the code already used: 2-space indent,
+double quotes, 80 columns. Two recommended rules are off — `noExplicitAny` (citty's
+`CommandDef` typing) and `noTemplateCurlyInString` (the fixtures embed literal
+`${VAR}` Score syntax).
 
 ## Documentation
 

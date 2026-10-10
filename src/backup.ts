@@ -26,7 +26,16 @@
  * files `0600`, because they hold expanded credentials.
  */
 
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { isObjectNode } from "./guards";
 
@@ -88,7 +97,10 @@ function manifestPath(stamp: string, configBase: string): string {
  *
  * Returns the stamp, which the caller reports as `Backup saved: <dir>`.
  */
-export function takeSnapshot(configBase: string, files: Record<string, string>): string {
+export function takeSnapshot(
+  configBase: string,
+  files: Record<string, string>,
+): string {
   const stamp = timestamp();
   const dir = snapshotDir(configBase, stamp);
   // A stamp is only safe to reuse because it is time-derived, so a collision is
@@ -117,12 +129,21 @@ export function takeSnapshot(configBase: string, files: Record<string, string>):
     // world-readable.
     const snapshot = `${id}.${extensionOf(path)}`;
     copyContents(path, join(dir, snapshot));
-    entries[id] = { id, from: path, backed: snapshot, mode: statSync(path).mode & 0o777 };
+    entries[id] = {
+      id,
+      from: path,
+      backed: snapshot,
+      mode: statSync(path).mode & 0o777,
+    };
   }
 
-  writeFileSync(manifestPath(stamp, configBase), JSON.stringify({ stamp, entries }, null, 2), {
-    mode: 0o600,
-  });
+  writeFileSync(
+    manifestPath(stamp, configBase),
+    JSON.stringify({ stamp, entries }, null, 2),
+    {
+      mode: 0o600,
+    },
+  );
   return stamp;
 }
 
@@ -148,15 +169,21 @@ export function listSnapshots(configBase: string): string[] {
 }
 
 /** Reads a snapshot's manifest, or null when it is gone or unreadable. */
-export function readManifest(configBase: string, stamp: string): Manifest | null {
+export function readManifest(
+  configBase: string,
+  stamp: string,
+): Manifest | null {
   let parsed: unknown;
   try {
-    parsed = Bun.JSONC.parse(readFileSync(manifestPath(stamp, configBase), "utf8"));
+    parsed = Bun.JSONC.parse(
+      readFileSync(manifestPath(stamp, configBase), "utf8"),
+    );
   } catch {
     return null;
   }
   if (!isObjectNode(parsed)) return null;
-  if (!isObjectNode(parsed["entries"]) || typeof parsed["stamp"] !== "string") return null;
+  if (!isObjectNode(parsed["entries"]) || typeof parsed["stamp"] !== "string")
+    return null;
   return parsed as unknown as Manifest;
 }
 
@@ -173,7 +200,10 @@ export function readManifest(configBase: string, stamp: string): Manifest | null
  * be a second opinion about the same snapshot, and a rollback line that
  * disagreed with what was actually restored is worse than no line at all.
  */
-export function restoreSnapshot(configBase: string, stamp: string): SnapshotEntry[] {
+export function restoreSnapshot(
+  configBase: string,
+  stamp: string,
+): SnapshotEntry[] {
   const manifest = readManifest(configBase, stamp);
   if (manifest === null) throw new Error(`no snapshot for ${stamp}`);
 
@@ -190,7 +220,9 @@ export function restoreSnapshot(configBase: string, stamp: string): SnapshotEntr
     // expanded credentials, and `writeFileSync` without a mode would make it
     // world-readable for the window before the chmod — the same exposure the
     // sync write path closes by writing its temporary file 0600.
-    writeFileSync(entry.from, readFileSync(join(dir, entry.backed), "utf8"), { mode: 0o600 });
+    writeFileSync(entry.from, readFileSync(join(dir, entry.backed), "utf8"), {
+      mode: 0o600,
+    });
     if (entry.mode !== undefined) chmodSync(entry.from, entry.mode);
     restored.push(entry);
   }

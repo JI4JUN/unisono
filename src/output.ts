@@ -24,7 +24,7 @@ const COLOR = {
 /** Color is on only for an interactive terminal that has not opted out. */
 function colorEnabled(): boolean {
   if (Bun.env.NO_COLOR !== undefined) return false;
-  return Bun.stdout.isTTY ?? false;
+  return process.stdout.isTTY ?? false;
 }
 
 function paint(code: string, text: string): string {
@@ -40,12 +40,19 @@ export function writeErr(line: string): Promise<number> {
 }
 
 function glyph(state: "ok" | "warn" | "fail"): string {
-  const coloredKey = { ok: COLOR.green, warn: COLOR.yellow, fail: COLOR.red }[state];
+  const coloredKey = { ok: COLOR.green, warn: COLOR.yellow, fail: COLOR.red }[
+    state
+  ];
   return paint(coloredKey, GLYPH[state]);
 }
 
 /** A status line: glyph, tag, path or subject, and trailing detail. */
-export function line(state: "ok" | "warn" | "fail", tag: string, subject: string, detail?: string): void {
+export function line(
+  state: "ok" | "warn" | "fail",
+  tag: string,
+  subject: string,
+  detail?: string,
+): void {
   const parts = [glyph(state), paint(COLOR.cyan, `[${tag}]`), subject];
   if (detail) parts.push(paint(COLOR.dim, detail));
   writeOut(parts.join(" "));

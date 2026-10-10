@@ -83,7 +83,10 @@ type Report = {
   warn: (message: string) => void;
 };
 
-function unknownKeys(node: Record<string, unknown>, known: Record<string, true>): string[] {
+function unknownKeys(
+  node: Record<string, unknown>,
+  known: Record<string, true>,
+): string[] {
   return Object.keys(node).filter((key) => !(key in known));
 }
 
@@ -98,7 +101,11 @@ function checkStringField(at: string, value: unknown, report: Report): void {
 }
 
 /** A required-or-optional integer field must be a whole number above zero. */
-function checkPositiveInteger(at: string, value: unknown, report: Report): void {
+function checkPositiveInteger(
+  at: string,
+  value: unknown,
+  report: Report,
+): void {
   if (value === undefined || value === null) return;
   if (typeof value !== "number" || !Number.isInteger(value)) {
     report.fail(`${at} must be an integer, got ${JSON.stringify(value)}`);
@@ -153,14 +160,18 @@ function checkProvider(id: string, value: unknown, report: Report): void {
   const apiKey = value["apiKey"];
   if (typeof apiKey === "string") {
     expandEnvReferences(apiKey, (name) =>
-      report.fail(`${label}.apiKey references environment variable ${name}, which is not defined or is empty`),
+      report.fail(
+        `${label}.apiKey references environment variable ${name}, which is not defined or is empty`,
+      ),
     );
   }
 
   const apiType = value["apiType"];
   if (apiType !== undefined && apiType !== null) {
     if (typeof apiType !== "string" || !(apiType in API_TYPES)) {
-      report.fail(`${label}.apiType ${JSON.stringify(apiType)} is not one of ${Object.keys(API_TYPES).join(", ")}`);
+      report.fail(
+        `${label}.apiType ${JSON.stringify(apiType)} is not one of ${Object.keys(API_TYPES).join(", ")}`,
+      );
     }
   }
 
@@ -173,14 +184,21 @@ function checkProvider(id: string, value: unknown, report: Report): void {
  * Called after the roster of checks that produced the node, so a provider
  * whose models are absent has already been reported as missing.
  */
-function checkModels(label: string, providerId: string, models: unknown, report: Report): void {
+function checkModels(
+  label: string,
+  providerId: string,
+  models: unknown,
+  report: Report,
+): void {
   if (models === undefined || models === null) return;
   if (!isListNode(models)) {
     report.fail(`${label}.models must be a list`);
     return;
   }
   if (models.length === 0) {
-    report.fail(`${label}.models is empty — a provider must declare at least one model`);
+    report.fail(
+      `${label}.models is empty — a provider must declare at least one model`,
+    );
     return;
   }
 
@@ -208,7 +226,9 @@ function checkModel(
     } else if (entry[field] === "") {
       report.fail(`${at}.${field} must not be empty`);
     } else if (typeof entry[field] !== "string") {
-      report.fail(`${at}.${field} must be a string, got ${JSON.stringify(entry[field])}`);
+      report.fail(
+        `${at}.${field} must be a string, got ${JSON.stringify(entry[field])}`,
+      );
     }
   }
   if (entry["contextWindow"] === undefined || entry["contextWindow"] === null) {
@@ -221,7 +241,10 @@ function checkModel(
 
   const id = entry["id"];
   if (typeof id === "string") {
-    if (id in seen) report.fail(`${at}.id '${id}' is duplicated within provider '${providerId}'`);
+    if (id in seen)
+      report.fail(
+        `${at}.id '${id}' is duplicated within provider '${providerId}'`,
+      );
     seen[id] = true;
   }
 
@@ -246,15 +269,25 @@ function toScore(version: unknown, providers: Record<string, unknown>): Score {
       // Already validated, so every reference resolved; expand silently.
       apiKey: expandEnvReferences(provider["apiKey"] as string, () => {}),
       apiType: provider["apiType"] as string,
-      ...(isObjectNode(provider["headers"]) ? { headers: provider["headers"] } : {}),
-      ...(isObjectNode(provider["overrides"]) ? { overrides: provider["overrides"] } : {}),
+      ...(isObjectNode(provider["headers"])
+        ? { headers: provider["headers"] }
+        : {}),
+      ...(isObjectNode(provider["overrides"])
+        ? { overrides: provider["overrides"] }
+        : {}),
       models: models.map((model) => ({
         id: model["id"] as string,
         name: model["name"] as string,
         contextWindow: model["contextWindow"] as number,
-        ...(model["maxTokens"] !== undefined ? { maxTokens: model["maxTokens"] as number } : {}),
-        ...(model["reasoning"] !== undefined ? { reasoning: model["reasoning"] as boolean } : {}),
-        ...(isObjectNode(model["overrides"]) ? { overrides: model["overrides"] } : {}),
+        ...(model["maxTokens"] !== undefined
+          ? { maxTokens: model["maxTokens"] as number }
+          : {}),
+        ...(model["reasoning"] !== undefined
+          ? { reasoning: model["reasoning"] as boolean }
+          : {}),
+        ...(isObjectNode(model["overrides"])
+          ? { overrides: model["overrides"] }
+          : {}),
       })),
     };
   }
@@ -289,11 +322,19 @@ export async function loadScore(path = scorePath()): Promise<ScoreResult> {
     document = Bun.YAML.parse(text);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    return { ok: false, errors: [`Score is not valid YAML: ${reason}`], warnings };
+    return {
+      ok: false,
+      errors: [`Score is not valid YAML: ${reason}`],
+      warnings,
+    };
   }
 
   if (!isObjectNode(document)) {
-    return { ok: false, errors: ["Score must be a map at the top level"], warnings };
+    return {
+      ok: false,
+      errors: ["Score must be a map at the top level"],
+      warnings,
+    };
   }
 
   for (const key of unknownKeys(document, TOP_LEVEL_FIELDS)) {
@@ -301,18 +342,30 @@ export async function loadScore(path = scorePath()): Promise<ScoreResult> {
   }
 
   const version = document["version"];
-  if (version === undefined || version === null) report.fail("version is required");
+  if (version === undefined || version === null)
+    report.fail("version is required");
   else if (String(version) !== SCORE_VERSION) {
-    report.fail(`version must be "${SCORE_VERSION}", got ${JSON.stringify(version)}`);
+    report.fail(
+      `version must be "${SCORE_VERSION}", got ${JSON.stringify(version)}`,
+    );
   }
 
   const providers = document["providers"];
-  if (providers === undefined || providers === null) report.fail("providers is required");
-  else if (!isObjectNode(providers)) report.fail("providers must be a map of provider id to provider");
-  else if (Object.keys(providers).length === 0) report.fail("providers is empty");
-  else for (const [id, value] of Object.entries(providers)) checkProvider(id, value, report);
+  if (providers === undefined || providers === null)
+    report.fail("providers is required");
+  else if (!isObjectNode(providers))
+    report.fail("providers must be a map of provider id to provider");
+  else if (Object.keys(providers).length === 0)
+    report.fail("providers is empty");
+  else
+    for (const [id, value] of Object.entries(providers))
+      checkProvider(id, value, report);
 
   return errors.length > 0
     ? { ok: false, errors, warnings }
-    : { ok: true, score: toScore(version, providers as Record<string, unknown>), warnings };
+    : {
+        ok: true,
+        score: toScore(version, providers as Record<string, unknown>),
+        warnings,
+      };
 }

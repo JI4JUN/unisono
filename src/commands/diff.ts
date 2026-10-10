@@ -20,7 +20,10 @@ export const diffCommand = defineCommand({
     let drifting = 0;
     let failed = false;
     for (const agent of AGENT_IDS) {
-      const reported = reportCompare(await compareAgent(agent, loaded.score), "Unchanged");
+      const reported = reportCompare(
+        await compareAgent(agent, loaded.score),
+        "Unchanged",
+      );
       failed = failed || reported.failed;
       if (reported.writable) drifting += 1;
     }

@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { runUnis, useSandbox, type Sandbox } from "./harness";
+import { runUnis, type Sandbox, useSandbox } from "./harness";
 
 const sandbox: Sandbox = useSandbox();
 
@@ -24,13 +24,16 @@ function writeNoScore(): void {
 }
 
 describe("unis list", () => {
-
   test("reports each Agent as skipped when not installed, exiting 0", () => {
     const { stdout, exitCode } = runUnis(sandbox, ["list"]);
 
     expect(exitCode).toBe(0);
-    expect(stdout).toContain(`[OMP] ${sandbox.ompDir}/models.yml Skipped (not installed)`);
-    expect(stdout).toContain(`[PI] ${sandbox.piDir}/models.json Skipped (not installed)`);
+    expect(stdout).toContain(
+      `[OMP] ${sandbox.ompDir}/models.yml Skipped (not installed)`,
+    );
+    expect(stdout).toContain(
+      `[PI] ${sandbox.piDir}/models.json Skipped (not installed)`,
+    );
   });
 
   test("reports the resolved path with provider and model counts", () => {
@@ -73,7 +76,9 @@ describe("unis list", () => {
     mkdirSync(custom, { recursive: true });
     writeFileSync(join(custom, "models.yml"), "providers: {}\n");
 
-    const { stdout, exitCode } = runUnis(sandbox, ["list"], { OMP_CODING_AGENT_DIR: custom });
+    const { stdout, exitCode } = runUnis(sandbox, ["list"], {
+      OMP_CODING_AGENT_DIR: custom,
+    });
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain(`[OMP] ${custom}/models.yml`);
@@ -84,7 +89,9 @@ describe("unis list", () => {
     mkdirSync(custom, { recursive: true });
     writeFileSync(join(custom, "models.yaml"), "providers: {}\n");
 
-    const { stdout, exitCode } = runUnis(sandbox, ["list"], { OMP_CODING_AGENT_DIR: custom });
+    const { stdout, exitCode } = runUnis(sandbox, ["list"], {
+      OMP_CODING_AGENT_DIR: custom,
+    });
 
     expect(exitCode).toBe(0);
     const ompLine = stdout.split("\n").find((line) => line.includes("[OMP]"));
@@ -95,12 +102,17 @@ describe("unis list", () => {
   test("prefers models.yml over models.yaml when both exist", () => {
     const custom = join(sandbox.root, "both-ext");
     mkdirSync(custom, { recursive: true });
-    writeFileSync(join(custom, "models.yml"), "providers: { a: { models: [] } }\n");
+    writeFileSync(
+      join(custom, "models.yml"),
+      "providers: { a: { models: [] } }\n",
+    );
     writeFileSync(join(custom, "models.yaml"), "providers: {}\n");
 
     // No Score on disk: the report counts what each config holds.
     writeNoScore();
-    const { stdout, exitCode } = runUnis(sandbox, ["list"], { OMP_CODING_AGENT_DIR: custom });
+    const { stdout, exitCode } = runUnis(sandbox, ["list"], {
+      OMP_CODING_AGENT_DIR: custom,
+    });
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain(`[OMP] ${custom}/models.yml`);
@@ -110,7 +122,10 @@ describe("unis list", () => {
   test("falls back to the default location when the Agent's env var is empty", () => {
     const homeDir = join(sandbox.root, "home");
     mkdirSync(join(homeDir, ".omp", "agent"), { recursive: true });
-    writeFileSync(join(homeDir, ".omp", "agent", "models.yml"), "providers: {}\n");
+    writeFileSync(
+      join(homeDir, ".omp", "agent", "models.yml"),
+      "providers: {}\n",
+    );
     writeNoScore();
 
     const { stdout, exitCode } = runUnis(sandbox, ["list"], {
@@ -145,7 +160,10 @@ describe("unis list", () => {
 
   test("reports a malformed config as Failed for that Agent only", () => {
     writeFileSync(join(sandbox.ompDir, "models.yml"), "providers: [unclosed\n");
-    writeFileSync(join(sandbox.piDir, "models.json"), JSON.stringify({ providers: {} }));
+    writeFileSync(
+      join(sandbox.piDir, "models.json"),
+      JSON.stringify({ providers: {} }),
+    );
 
     const { stdout, exitCode } = runUnis(sandbox, ["list"]);
 

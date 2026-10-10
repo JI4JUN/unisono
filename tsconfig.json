@@ -5,12 +5,12 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "lib": ["ESNext"],
-    "types": [],
+    "types": ["bun"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "types/**/*.d.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

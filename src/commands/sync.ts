@@ -11,13 +11,13 @@ import { AGENT_IDS, configBase } from "../paths";
 import { replacePiCatalogNode } from "../pi-write";
 import { replaceCatalogNode } from "../sync";
 import {
-  UNREADABLE_CONFIG_MESSAGE,
+  type AgentCompare,
   compareAgent,
   danglingWarnings,
   loadValidScore,
   reportCompare,
+  UNREADABLE_CONFIG_MESSAGE,
   writeFile,
-  type AgentCompare,
 } from "./shared";
 
 export const syncCommand = defineCommand({
@@ -57,7 +57,9 @@ export const syncCommand = defineCommand({
         const doomedEntries = Object.entries(compare.doomed);
         if (doomedEntries.length > 0) {
           const doomedList = doomedEntries
-            .map(([id, models]) => (models.length === 0 ? id : `${id} (models: ${models.join(", ")})`))
+            .map(([id, models]) =>
+              models.length === 0 ? id : `${id} (models: ${models.join(", ")})`,
+            )
             .join(", ");
           gated.push(`${agent.toUpperCase()}: ${doomedList}`);
         }
@@ -76,7 +78,8 @@ export const syncCommand = defineCommand({
       return;
     }
 
-    for (const warning of danglingWarnings(loaded.score)) writeErr(`⚠ ${warning}`);
+    for (const warning of danglingWarnings(loaded.score))
+      writeErr(`⚠ ${warning}`);
 
     const targets = writable.filter(() => !dryRun);
 
@@ -85,21 +88,35 @@ export const syncCommand = defineCommand({
       try {
         stamp = takeSnapshot(
           configBase(),
-          Object.fromEntries(targets.map((compare) => [compare.agent, compare.path])),
+          Object.fromEntries(
+            targets.map((compare) => [compare.agent, compare.path]),
+          ),
         );
       } catch (error) {
-        errorLine(`cannot snapshot before write: ${error instanceof Error ? error.message : String(error)}`);
+        errorLine(
+          `cannot snapshot before write: ${error instanceof Error ? error.message : String(error)}`,
+        );
         process.exitCode = 1;
         return;
       }
-      line("ok", "Snapshot", snapshotDir(configBase(), stamp), "taken before write");
+      line(
+        "ok",
+        "Snapshot",
+        snapshotDir(configBase(), stamp),
+        "taken before write",
+      );
       rotateSnapshots(configBase());
     }
 
     for (const compare of targets) {
       const read = await readCatalog(compare.agent);
       if (!read.ok) {
-        line("fail", compare.agent.toUpperCase(), compare.path, UNREADABLE_CONFIG_MESSAGE);
+        line(
+          "fail",
+          compare.agent.toUpperCase(),
+          compare.path,
+          UNREADABLE_CONFIG_MESSAGE,
+        );
         failed = true;
         continue;
       }

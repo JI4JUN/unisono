@@ -4,17 +4,22 @@
  */
 
 import type { ArgsDef } from "citty";
-import { compileCatalog } from "../compiler";
 import { countCatalog, readCatalog } from "../agent";
-import { formatDangling, ompDanglingReferences, piDanglingReferences } from "../dangling";
-import { diffCatalog, doomedProviders, type CatalogDiff } from "../merger";
+import { compileCatalog } from "../compiler";
+import {
+  formatDangling,
+  ompDanglingReferences,
+  piDanglingReferences,
+} from "../dangling";
+import { type CatalogDiff, diffCatalog, doomedProviders } from "../merger";
 import { errorLine, line, writeErr, writeOut } from "../output";
-import { agentBaseDir, scorePath, type AgentId } from "../paths";
+import { type AgentId, agentBaseDir, scorePath } from "../paths";
 import { escapePiCatalog } from "../pi-write";
 import { loadScore, type Score } from "../score";
 import { atomicWrite, type WriteResult } from "../writer";
 
-export const UNREADABLE_CONFIG_MESSAGE = "Failed: config cannot be read or parsed";
+export const UNREADABLE_CONFIG_MESSAGE =
+  "Failed: config cannot be read or parsed";
 
 /**
  * One Agent's Catalog compared against the Score's compiled one.
@@ -58,7 +63,12 @@ export function reportCompare(
   }
   if (compare.state === "uncomparable") {
     const counts = compare.disk;
-    line("warn", tag, compare.path, `${counts.providers} providers, ${counts.models} models`);
+    line(
+      "warn",
+      tag,
+      compare.path,
+      `${counts.providers} providers, ${counts.models} models`,
+    );
     return { writable: false, failed: false };
   }
 
@@ -91,7 +101,10 @@ export function reportCompare(
  * Loads the Score from its resolved path, printing any validation errors or
  * warnings and setting `process.exitCode = 1` on failure.
  */
-export async function loadValidScore(): Promise<{ path: string; score: Score } | null> {
+export async function loadValidScore(): Promise<{
+  path: string;
+  score: Score;
+} | null> {
   const path = scorePath();
   const result = await loadScore(path);
   if (!result.ok) {
@@ -108,8 +121,12 @@ export async function loadValidScore(): Promise<{ path: string; score: Score } |
  */
 export function danglingWarnings(score: Score): string[] {
   return [
-    ...ompDanglingReferences(agentBaseDir("omp"), score.providers).map(formatDangling),
-    ...piDanglingReferences(agentBaseDir("pi"), score.providers).map(formatDangling),
+    ...ompDanglingReferences(agentBaseDir("omp"), score.providers).map(
+      formatDangling,
+    ),
+    ...piDanglingReferences(agentBaseDir("pi"), score.providers).map(
+      formatDangling,
+    ),
   ];
 }
 
@@ -117,7 +134,10 @@ export function danglingWarnings(score: Score): string[] {
  * Compares one Agent's Catalog against the Score's when a Score is supplied,
  * or returns a count-only `uncomparable` report when no Score could be read.
  */
-export async function compareAgent(agent: AgentId, score?: Score): Promise<AgentCompare> {
+export async function compareAgent(
+  agent: AgentId,
+  score?: Score,
+): Promise<AgentCompare> {
   const read = await readCatalog(agent);
 
   if (!read.ok) {
@@ -163,11 +183,17 @@ export async function compareAgent(agent: AgentId, score?: Score): Promise<Agent
 /**
  * Writes an Agent's config atomically, reporting what happened.
  */
-export function writeFile(path: string, content: string, sha256: string | null): WriteResult {
+export function writeFile(
+  path: string,
+  content: string,
+  sha256: string | null,
+): WriteResult {
   try {
     return atomicWrite(path, content, sha256);
   } catch (error) {
-    errorLine(`cannot write ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    errorLine(
+      `cannot write ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return { wrote: false, reason: "write-failed" };
   }
 }
@@ -179,7 +205,10 @@ export function writeFile(path: string, content: string, sha256: string | null):
  * definition so flag declarations live in one place, while still rejecting
  * undeclared flags that `citty`'s `parseArgs({ strict: false })` would ignore.
  */
-export function findUnknownFlag(rawArgs: string[], argsDef: ArgsDef = {}): string | undefined {
+export function findUnknownFlag(
+  rawArgs: string[],
+  argsDef: ArgsDef = {},
+): string | undefined {
   const allowed: Record<string, true> = {};
   for (const [name, def] of Object.entries(argsDef)) {
     if (def.type === "positional") continue;

@@ -42,7 +42,10 @@ function maskCredentials(value: unknown): unknown {
 
   const masked: Record<string, unknown> = {};
   for (const [key, node] of Object.entries(value)) {
-    masked[key] = key === "apiKey" && typeof node === "string" ? maskKey(node) : maskCredentials(node);
+    masked[key] =
+      key === "apiKey" && typeof node === "string"
+        ? maskKey(node)
+        : maskCredentials(node);
   }
   return masked;
 }
@@ -60,7 +63,10 @@ function maskCredentials(value: unknown): unknown {
  * otherwise pass through in full.
  */
 export function renderValue(value: unknown, at: string): string {
-  const masked = isCredentialPath(at) && typeof value === "string" ? maskKey(value) : maskCredentials(value);
+  const masked =
+    isCredentialPath(at) && typeof value === "string"
+      ? maskKey(value)
+      : maskCredentials(value);
   return JSON.stringify(masked) ?? String(masked);
 }
 

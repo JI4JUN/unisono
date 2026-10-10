@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { runUnis, useSandbox, type Sandbox } from "./harness";
+import { runUnis, type Sandbox, useSandbox } from "./harness";
 
 const sandbox: Sandbox = useSandbox();
 
@@ -53,7 +53,10 @@ const MAPPED_CATALOG = `    name: "DeepSeek Official"
 describe("unis diff", () => {
   test("reports nothing to change when omp already holds the compiled Catalog, exiting 0", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(sandbox.ompDir, "models.yml"), `providers:\n  deepseek:\n${MAPPED_CATALOG}\n`);
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      `providers:\n  deepseek:\n${MAPPED_CATALOG}\n`,
+    );
 
     const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
 
@@ -74,7 +77,7 @@ describe("unis diff", () => {
         "  deepseek:",
         "      models:",
         '        - id: "deepseek-reasoner"',
-        '          reasoning: true',
+        "          reasoning: true",
         "          maxTokens: 8192",
         "          contextWindow: 65536",
         '          name: "DeepSeek R1 (Reasoning)"',
@@ -130,7 +133,9 @@ describe("unis diff", () => {
     writeScore(VALID_SCORE);
     writeFileSync(
       join(sandbox.ompDir, "models.yml"),
-      ["providers:", "  stale:", "    models: []", `    name: "Stale"`].join("\n"),
+      ["providers:", "  stale:", "    models: []", `    name: "Stale"`].join(
+        "\n",
+      ),
     );
 
     const { stdout, exitCode } = runUnis(sandbox, ["diff"]);
@@ -166,7 +171,10 @@ describe("unis diff", () => {
 
   test("masks apiKey as the first five and last four characters", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers:\n  deepseek:\n    models: []\n");
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      "providers:\n  deepseek:\n    models: []\n",
+    );
 
     const { stdout } = runUnis(sandbox, ["diff"]);
 
@@ -176,9 +184,15 @@ describe("unis diff", () => {
 
   test("fully stars an apiKey too short to split", () => {
     writeScore(
-      VALID_SCORE.replace('    apiKey: "sk-sample-key-1234567890"\n', '    apiKey: "short"\n'),
+      VALID_SCORE.replace(
+        '    apiKey: "sk-sample-key-1234567890"\n',
+        '    apiKey: "short"\n',
+      ),
     );
-    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers:\n  deepseek:\n    models: []\n");
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      "providers:\n  deepseek:\n    models: []\n",
+    );
 
     const { stdout } = runUnis(sandbox, ["diff"]);
 
@@ -193,7 +207,9 @@ describe("unis diff", () => {
     const { exitCode } = runUnis(sandbox, ["diff"]);
 
     expect(exitCode).toBe(0);
-    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toBe(before);
+    expect(readFileSync(join(sandbox.ompDir, "models.yml"), "utf8")).toBe(
+      before,
+    );
   });
 
   test("reports a config that cannot be parsed as Failed and exits 1", () => {
@@ -269,7 +285,7 @@ describe("unis diff", () => {
   });
 
   test("exits 1 with the reason when the Score itself is invalid", () => {
-    writeScore("version: \"2\"\nproviders: {}\n");
+    writeScore('version: "2"\nproviders: {}\n');
 
     const { stderr, exitCode } = runUnis(sandbox, ["diff"]);
 
@@ -460,7 +476,10 @@ providers:
 describe("unis list Catalog comparison", () => {
   test("reports Synced when omp holds the compiled Catalog", () => {
     writeScore(VALID_SCORE);
-    writeFileSync(join(sandbox.ompDir, "models.yml"), `providers:\n  deepseek:\n${MAPPED_CATALOG}\n`);
+    writeFileSync(
+      join(sandbox.ompDir, "models.yml"),
+      `providers:\n  deepseek:\n${MAPPED_CATALOG}\n`,
+    );
 
     const { stdout, exitCode } = runUnis(sandbox, ["list"]);
 

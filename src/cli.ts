@@ -8,7 +8,13 @@
  * unconfirmed first takeover.
  */
 
-import { defineCommand, runMain, showUsage, type ArgsDef, type CommandDef } from "citty";
+import {
+  type ArgsDef,
+  type CommandDef,
+  defineCommand,
+  runMain,
+  showUsage,
+} from "citty";
 import pkg from "../package.json";
 import { diffCommand } from "./commands/diff";
 import { importCommand } from "./commands/import";
@@ -45,7 +51,9 @@ const mainCommand = defineCommand({
     }
     const sub = subCommands[first];
     if (sub !== undefined) {
-      const argsDef = (typeof sub.args === "function" ? await sub.args() : await sub.args) as ArgsDef | undefined;
+      const argsDef = (
+        typeof sub.args === "function" ? await sub.args() : await sub.args
+      ) as ArgsDef | undefined;
       const unknown = findUnknownFlag(rawArgs.slice(1), argsDef);
       if (unknown !== undefined) {
         errorLine(`unknown flag: ${unknown}`);

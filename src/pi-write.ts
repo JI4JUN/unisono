@@ -19,8 +19,8 @@
  * `$!`, and every `$` becomes `$$`.
  */
 
-import { isListNode, isObjectNode } from "./guards";
 import type { Catalog } from "./agent";
+import { isListNode, isObjectNode } from "./guards";
 
 /** The top-level key the Catalog lives under. */
 const CATALOG_KEY = "providers";
@@ -103,12 +103,16 @@ function walk(node: Record<string, unknown> | unknown[]): unknown {
  * The block itself is written in canonical two-space JSON, so the Catalog is
  * always in one known form regardless of what the file looked like before.
  */
-export function replacePiCatalogNode(existing: string, catalog: Catalog): string {
+export function replacePiCatalogNode(
+  existing: string,
+  catalog: Catalog,
+): string {
   // Parsed first so an unparseable config fails here rather than being spliced
   // over: the takeover is not the place to discover a broken file, and a
   // `readCatalog` failure is what reports it.
   const parsed: unknown = Bun.JSONC.parse(existing);
-  if (!isObjectNode(parsed)) throw new Error("expected a config object at top level");
+  if (!isObjectNode(parsed))
+    throw new Error("expected a config object at top level");
 
   // The Catalog is written as the canonical two-space JSON of its value; the
   // block's own key line and the document's braces are carried over from the
@@ -136,11 +140,14 @@ export function replacePiCatalogNode(existing: string, catalog: Catalog): string
   if (lastBlock !== undefined && (depths[lastBlock] ?? 0) === 1) {
     if (close > lastBlock) starts.push(close);
   }
-  const catalogStart = starts.findIndex((start) => blockKey(lines[start] ?? "") === CATALOG_KEY);
+  const catalogStart = starts.findIndex(
+    (start) => blockKey(lines[start] ?? "") === CATALOG_KEY,
+  );
   if (catalogStart === -1) {
     // No Catalog yet: the user's blocks are kept and the Catalog is appended
     // before the document's own closing brace, where a top-level key belongs.
-    if (close === -1) return `${JSON.stringify({ [CATALOG_KEY]: escapePiCatalog(catalog) }, null, 2)}\n`;
+    if (close === -1)
+      return `${JSON.stringify({ [CATALOG_KEY]: escapePiCatalog(catalog) }, null, 2)}\n`;
 
     // A document whose closing brace shares its line with content has no line
     // to append before: the splice shape assumes a line per key, and slicing
@@ -148,11 +155,19 @@ export function replacePiCatalogNode(existing: string, catalog: Catalog): string
     // re-emitted instead — reformatted, which loses the user's whitespace, but
     // keeping every node, which is the contract (spec §3.3). A brace alone on
     // its line is the one shape the text splice can hold on to.
-    if (!/^\s*}\s*,?\s*$/.test(lines[close] ?? "")) return reemitWithCatalog(parsed, catalog);
+    if (!/^\s*}\s*,?\s*$/.test(lines[close] ?? ""))
+      return reemitWithCatalog(parsed, catalog);
 
     const indent = /^\s*/.exec(lines[close - 1] ?? "")?.[0] ?? "";
-    const body = indentBody(JSON.stringify(escapePiCatalog(catalog), null, 2), indent);
-    return [...lines.slice(0, close), `${indent}"${CATALOG_KEY}": ${body},`, "}"].join("\n");
+    const body = indentBody(
+      JSON.stringify(escapePiCatalog(catalog), null, 2),
+      indent,
+    );
+    return [
+      ...lines.slice(0, close),
+      `${indent}"${CATALOG_KEY}": ${body},`,
+      "}",
+    ].join("\n");
   }
 
   const from = starts[catalogStart] ?? 0;
@@ -178,7 +193,10 @@ export function replacePiCatalogNode(existing: string, catalog: Catalog): string
   // indents differently keeps looking like itself — the canonical JSON is the
   // Catalog's value, and the key line is the document's.
   const indent = /^\s*/.exec(lines[from] ?? "")?.[0] ?? "";
-  const body = indentBody(JSON.stringify(escapePiCatalog(catalog), null, 2), indent);
+  const body = indentBody(
+    JSON.stringify(escapePiCatalog(catalog), null, 2),
+    indent,
+  );
   return [before, `${indent}"${CATALOG_KEY}": ${body}${separator}`, after]
     .filter((piece) => piece.length > 0)
     .join("\n")
@@ -188,7 +206,9 @@ export function replacePiCatalogNode(existing: string, catalog: Catalog): string
 /** The lines of `body` after the first, each prefixed with `indent`. */
 function indentBody(body: string, indent: string): string {
   const lines = body.split("\n");
-  return lines.map((line, index) => (index === 0 ? line : `${indent}${line}`)).join("\n");
+  return lines
+    .map((line, index) => (index === 0 ? line : `${indent}${line}`))
+    .join("\n");
 }
 
 /**
@@ -261,7 +281,10 @@ function scanDocument(lines: string[]): {
  * a document whose shape the text splice cannot hold: a closing brace sharing
  * its line with content leaves nothing to splice at without breaking it.
  */
-function reemitWithCatalog(parsed: Record<string, unknown>, catalog: Catalog): string {
+function reemitWithCatalog(
+  parsed: Record<string, unknown>,
+  catalog: Catalog,
+): string {
   const kept: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(parsed)) {
     if (key !== CATALOG_KEY) kept[key] = value;

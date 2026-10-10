@@ -11,9 +11,9 @@
  * format: one is YAML, the other could be JSON.
  */
 
+import type { Catalog } from "./agent";
 import { isListNode, isObjectNode } from "./guards";
 import { renderValue } from "./mask";
-import type { Catalog } from "./agent";
 
 /**
  * Deep-merges `overlay` onto `base`, returning a new value.
@@ -31,7 +31,9 @@ export function deepMerge(
   for (const [key, value] of Object.entries(overlay)) {
     const existing = merged[key];
     merged[key] =
-      isObjectNode(existing) && isObjectNode(value) ? deepMerge(existing, value) : value;
+      isObjectNode(existing) && isObjectNode(value)
+        ? deepMerge(existing, value)
+        : value;
   }
   return merged;
 }
@@ -77,7 +79,10 @@ export function diffCatalog(expected: Catalog, actual: Catalog): CatalogDiff[] {
  * A Model dropped from a Provider that survives is not a deletion of a
  * Provider, so it does not gate the takeover; `diff` still reports it as drift.
  */
-export function doomedProviders(compiled: Catalog, actual: Catalog): Record<string, string[]> {
+export function doomedProviders(
+  compiled: Catalog,
+  actual: Catalog,
+): Record<string, string[]> {
   const doomed: Record<string, string[]> = {};
   for (const id of Object.keys(actual)) {
     // `Object.hasOwn`, not `in`: an id like `constructor` is an own key here,
@@ -112,7 +117,11 @@ function modelIdsOf(provider: Record<string, unknown> | undefined): string[] {
  * that `in` would resolve against Object.prototype and mistake for being
  * declared on the other side — hiding the very difference being collected.
  */
-function collectProviderDiffs(expected: Catalog, actual: Catalog, diffs: CatalogDiff[]): void {
+function collectProviderDiffs(
+  expected: Catalog,
+  actual: Catalog,
+  diffs: CatalogDiff[],
+): void {
   for (const id of Object.keys(expected)) {
     if (Object.hasOwn(actual, id)) continue;
     diffs.push({
@@ -136,12 +145,25 @@ function collectProviderDiffs(expected: Catalog, actual: Catalog, diffs: Catalog
   }
 }
 
-function collectNodeDiffs(expected: unknown, actual: unknown, at: string, diffs: CatalogDiff[]): void {
+function collectNodeDiffs(
+  expected: unknown,
+  actual: unknown,
+  at: string,
+  diffs: CatalogDiff[],
+): void {
   if (isSameScalar(expected, actual)) return;
 
   if (isObjectNode(expected) && isObjectNode(actual)) {
-    for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
-      collectNodeDiffs(expected[key], actual[key], at ? `${at}.${key}` : key, diffs);
+    for (const key of new Set([
+      ...Object.keys(expected),
+      ...Object.keys(actual),
+    ])) {
+      collectNodeDiffs(
+        expected[key],
+        actual[key],
+        at ? `${at}.${key}` : key,
+        diffs,
+      );
     }
     return;
   }
@@ -149,7 +171,12 @@ function collectNodeDiffs(expected: unknown, actual: unknown, at: string, diffs:
   if (isListNode(expected) && isListNode(actual)) {
     const length = Math.max(expected.length, actual.length);
     for (let index = 0; index < length; index += 1) {
-      collectNodeDiffs(expected[index], actual[index], `${at}[${index}]`, diffs);
+      collectNodeDiffs(
+        expected[index],
+        actual[index],
+        `${at}[${index}]`,
+        diffs,
+      );
     }
     return;
   }

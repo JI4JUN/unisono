@@ -29,7 +29,11 @@ const CATALOG_KEY = "providers";
  * appends when the config has no Catalog yet.
  */
 export function replaceCatalogNode(existing: string, catalog: Catalog): string {
-  const canonical = Bun.YAML.stringify({ [CATALOG_KEY]: catalog }, null, 2).replace(/\s+$/, "");
+  const canonical = Bun.YAML.stringify(
+    { [CATALOG_KEY]: catalog },
+    null,
+    2,
+  ).replace(/\s+$/, "");
 
   const lines = existing.split("\n");
   // A top-level key starts at column 0; a block scalar's body is indented
@@ -39,17 +43,25 @@ export function replaceCatalogNode(existing: string, catalog: Catalog): string {
     if (blockKey(lines[index] ?? "") !== null) starts.push(index);
   }
 
-  const catalogStart = starts.findIndex((start) => blockKey(lines[start] ?? "") === CATALOG_KEY);
+  const catalogStart = starts.findIndex(
+    (start) => blockKey(lines[start] ?? "") === CATALOG_KEY,
+  );
   if (catalogStart === -1) {
     const kept = starts
-      .map((start, at) => lines.slice(start, starts[at + 1] ?? lines.length).join("\n"))
+      .map((start, at) =>
+        lines.slice(start, starts[at + 1] ?? lines.length).join("\n"),
+      )
       .filter((piece) => piece.length > 0);
     return [...kept, "", canonical].join("\n");
   }
 
   const before = starts[catalogStart] ?? 0;
   const after = starts[catalogStart + 1] ?? lines.length;
-  return [lines.slice(0, before).join("\n"), canonical, lines.slice(after).join("\n")]
+  return [
+    lines.slice(0, before).join("\n"),
+    canonical,
+    lines.slice(after).join("\n"),
+  ]
     .filter((piece) => piece.length > 0)
     .join("\n");
 }

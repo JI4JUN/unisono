@@ -8,8 +8,8 @@
  * latter throws on a trailing comma that pi accepts).
  */
 
-import { agentConfigPath, isAgentInstalled, type AgentId } from "./paths";
 import { isObjectNode } from "./guards";
+import { type AgentId, agentConfigPath, isAgentInstalled } from "./paths";
 import { hashText } from "./writer";
 
 /** A Catalog as parsed from disk: unknown-shaped, but `providers` must be a map. */
@@ -32,9 +32,11 @@ export type Catalog = Record<string, Record<string, unknown>>;
  * would read as "no providers" rather than "this is not a config".
  */
 export function parseAgentDocument(agent: AgentId, text: string): RawConfig {
-  const parsed: unknown = agent === "omp" ? Bun.YAML.parse(text) : Bun.JSONC.parse(text);
+  const parsed: unknown =
+    agent === "omp" ? Bun.YAML.parse(text) : Bun.JSONC.parse(text);
   if (parsed === null || parsed === undefined) return {};
-  if (!isObjectNode(parsed)) throw new Error("expected a config object at top level");
+  if (!isObjectNode(parsed))
+    throw new Error("expected a config object at top level");
   return parsed;
 }
 
@@ -53,7 +55,10 @@ function modelsOf(provider: Record<string, unknown> | undefined): number {
 }
 
 /** Provider and model counts of a Catalog, for reports and comparisons alike. */
-export function countCatalog(catalog: Catalog): { providers: number; models: number } {
+export function countCatalog(catalog: Catalog): {
+  providers: number;
+  models: number;
+} {
   const providers = Object.keys(catalog);
   return {
     providers: providers.length,
@@ -69,12 +74,17 @@ export function countCatalog(catalog: Catalog): { providers: number; models: num
  * that cannot be parsed is reported as `failed` with its reason rather than
  * thrown, so one broken Agent does not blind the other.
  */
-export async function readCatalog(
-  agent: AgentId,
-): Promise<
-  { ok: true; path: string; catalog: Catalog; text: string; sha256: string | null } |
-  { ok: false; path: string; reason: string }
-> {
+export type CatalogRead =
+  | {
+      ok: true;
+      path: string;
+      catalog: Catalog;
+      text: string;
+      sha256: string | null;
+    }
+  | { ok: false; path: string; reason: string };
+
+export async function readCatalog(agent: AgentId): Promise<CatalogRead> {
   const path = agentConfigPath(agent);
   if (!isAgentInstalled(agent)) {
     return { ok: false, path, reason: "not installed" };
@@ -95,7 +105,13 @@ export async function readCatalog(
   // disk against disk and let a stale write through.
   try {
     const config = parseAgentDocument(agent, text);
-    return { ok: true, path, catalog: catalogOf(config), text, sha256: hashText(text) };
+    return {
+      ok: true,
+      path,
+      catalog: catalogOf(config),
+      text,
+      sha256: hashText(text),
+    };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return { ok: false, path, reason };
