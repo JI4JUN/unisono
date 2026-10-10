@@ -22,7 +22,6 @@ function writeScore(text: string): void {
 const VALID_SCORE = `version: "1"
 providers:
   deepseek:
-    name: "DeepSeek Official"
     baseUrl: "https://api.deepseek.com/v1"
     apiKey: "sk-sample-key-1234567890"
     apiType: "openai-completions"
@@ -37,8 +36,7 @@ providers:
 `;
 
 /** The omp Catalog the plain VALID_SCORE compiles to. */
-const MAPPED_CATALOG = `    name: "DeepSeek Official"
-    baseUrl: "https://api.deepseek.com/v1"
+const MAPPED_CATALOG = `    baseUrl: "https://api.deepseek.com/v1"
     api: "openai-completions"
     apiKey: "sk-sample-key-1234567890"
     headers:
@@ -86,7 +84,6 @@ describe("unis diff", () => {
         '      apiKey: "sk-sample-key-1234567890"',
         '      api: "openai-completions"',
         '      baseUrl: "https://api.deepseek.com/v1"',
-        '      name: "DeepSeek Official"',
       ].join("\n"),
     );
 
@@ -103,7 +100,6 @@ describe("unis diff", () => {
       [
         "providers:",
         "  deepseek:",
-        '    name: "DeepSeek Official"',
         '    baseUrl: "https://api.deepseek.com/v1"',
         '    api: "openai-completions"',
         '    apiKey: "sk-sample-key-1234567890"',
@@ -245,7 +241,6 @@ describe("unis diff", () => {
       JSON.stringify({
         providers: {
           deepseek: {
-            name: "DeepSeek Official",
             baseUrl: "https://api.deepseek.com/v1",
             api: "openai-completions",
             apiKey: "sk-sample-key-1234567890",
@@ -300,13 +295,12 @@ describe("Override deep-merge", () => {
       `version: "1"
 providers:
   p:
-    name: "Score Name"
     baseUrl: "https://x"
     apiKey: "k"
     apiType: "openai-completions"
     overrides:
       omp:
-        name: "Override Name"
+        baseUrl: "https://override"
     models:
       - id: m
         name: "Score Model"
@@ -323,8 +317,7 @@ providers:
       [
         "providers:",
         "  p:",
-        '    name: "Override Name"',
-        '    baseUrl: "https://x"',
+        '    baseUrl: "https://override"',
         '    api: "openai-completions"',
         '    apiKey: "k"',
         "    models:",
@@ -345,7 +338,6 @@ providers:
       `version: "1"
 providers:
   p:
-    name: "Score Name"
     baseUrl: "https://x"
     apiKey: "k"
     apiType: "openai-completions"
@@ -367,7 +359,6 @@ providers:
       [
         "providers:",
         "  p:",
-        '    name: "Score Name"',
         '    baseUrl: "https://x"',
         '    api: "openai-completions"',
         '    apiKey: "k"',
@@ -392,7 +383,6 @@ providers:
       `version: "1"
 providers:
   p:
-    name: "Score Name"
     baseUrl: "https://x"
     apiKey: "k"
     apiType: "openai-completions"
@@ -411,7 +401,6 @@ providers:
       [
         "providers:",
         "  p:",
-        '    name: "Score Name"',
         '    baseUrl: "https://x"',
         '    api: "openai-completions"',
         '    apiKey: "k"',
@@ -437,7 +426,6 @@ providers:
       `version: "1"
 providers:
   p:
-    name: "Score Name"
     baseUrl: "https://x"
     apiKey: "k"
     apiType: "openai-completions"
@@ -455,7 +443,6 @@ providers:
       [
         "providers:",
         "  p:",
-        '    name: "Score Name"',
         '    baseUrl: "https://x"',
         '    api: "openai-completions"',
         '    apiKey: "k"',

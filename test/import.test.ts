@@ -35,7 +35,6 @@ const OMP_FIXTURE = `modelOverrides:
   role: hand
 providers:
   deepseek:
-    name: "DeepSeek Official"
     baseUrl: "https://api.deepseek.com/v1"
     apiKey: "sk-omp-key-87654321"
     api: "openai-completions"
@@ -62,7 +61,6 @@ providers:
           mode: "effort"
           efforts: ["low", "medium", "high"]
   anthropic:
-    name: "Anthropic"
     baseUrl: "https://api.anthropic.com/v1"
     apiKey: "sk-omp-ant-12345678"
     api: "anthropic-messages"
@@ -167,7 +165,6 @@ describe("unis import — reverse Score generation", () => {
     expect(Object.keys(providers)).toContain("anthropic");
 
     const deepseek = providerInScore("deepseek");
-    expect(deepseek["name"]).toBe("DeepSeek Official");
     expect(deepseek["baseUrl"]).toBe("https://api.deepseek.com/v1");
     // `api` is the Catalog's name for the Score's `apiType`. The import maps
     // it back, because a Score that said `api` would not validate.
@@ -189,7 +186,6 @@ describe("unis import — reverse Score generation", () => {
           settings: { theme: "dark" },
           providers: {
             deepseek: {
-              name: "DeepSeek Official",
               baseUrl: "https://api.deepseek.com/v1",
               apiKey: "sk-pi-key-12345678",
               api: "openai-completions",
@@ -203,7 +199,6 @@ describe("unis import — reverse Score generation", () => {
               ],
             },
             shellish: {
-              name: "Shellish",
               baseUrl: "https://x/v1",
               apiKey: "sk-pi-key-12345678",
               api: "openai-completions",
@@ -256,7 +251,6 @@ describe("unis import — reverse Score generation", () => {
       [
         "providers:",
         "  deepseek:",
-        '    name: "DeepSeek Official"',
         '    baseUrl: "https://api.deepseek.com/v1"',
         '    apiKey: "sk-omp-key-87654321"',
         '    api: "openai-completions"',
@@ -285,7 +279,6 @@ describe("unis import — reverse Score generation", () => {
       [
         "providers:",
         "  deepseek:",
-        '    name: "DeepSeek Official"',
         '    baseUrl: "https://api.deepseek.com/v1"',
         '    apiKey: "sk-omp-key-87654321"',
         '    api: "openai-completions"',
@@ -312,7 +305,6 @@ describe("unis import — reverse Score generation", () => {
       JSON.stringify({
         providers: {
           pi: {
-            name: "Pi",
             baseUrl: "https://x/v1",
             apiKey: "sk-pi-key-12345678",
             api: "openai-completions",
@@ -382,7 +374,6 @@ describe("unis import — reverse Score generation", () => {
     writeScore(`version: "1"
 providers:
   mine:
-    name: "Mine"
     baseUrl: "https://x/v1"
     apiKey: "sk-mine-12345678"
     apiType: "openai-completions"
@@ -421,7 +412,6 @@ providers:
     const catalog = {
       providers: {
         pi: {
-          name: "Pi",
           baseUrl: "https://x/v1",
           apiKey: "sk-pi-key-12345678",
           api: "openai-completions",
@@ -444,7 +434,6 @@ providers:
     // fixture, and must not be: a `$` written raw is a value pi would expand.
     const pi = asMap(catalogOfAgent(piPath(), true)["pi"]);
     expect(pi).toMatchObject({
-      name: "Pi",
       baseUrl: "https://x/v1",
       apiKey: "sk-pi-key-12345678",
       api: "openai-completions",
@@ -472,7 +461,6 @@ providers:
       [
         "providers:",
         "  empty:",
-        '    name: "Empty"',
         '    baseUrl: "https://x/v1"',
         '    apiKey: "sk-e"',
         '    api: "openai-completions"',
@@ -497,7 +485,6 @@ providers:
       [
         "providers:",
         "  deepseek:",
-        '    name: "DeepSeek Official"',
         '    baseUrl: "https://api.deepseek.com/v1"',
         '    apiKey: "sk-omp-key-87654321"',
         '    api: "openai-completions"',

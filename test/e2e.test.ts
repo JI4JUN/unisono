@@ -146,7 +146,6 @@ function filterTo(
 const EXAMPLE_SCORE = `version: "1"
 providers:
   deepseek:
-    name: "DeepSeek Official"
     baseUrl: "https://api.deepseek.com/v1"
     apiKey: "sk-sample-key-1234567890"
     apiType: "openai-completions"
@@ -170,7 +169,6 @@ providers:
             input: ["text"]
             cost: { input: 0.55, output: 2.19, cacheRead: 0.14, cacheWrite: 0 }
   anthropic:
-    name: "Anthropic"
     baseUrl: "https://api.anthropic.com/v1"
     apiKey: "sk-anthropic-abcdefghij"
     apiType: "anthropic-messages"
@@ -307,9 +305,15 @@ describe("end-to-end contract", () => {
     const classes: Array<[string, string]> = [
       [
         "version",
-        `version: "2"\nproviders:\n  p:\n    name: "P"\n    baseUrl: "https://x/v1"\n    apiKey: "sk-1"\n    apiType: "openai-completions"\n    models:\n      - id: "m"\n        name: "M"\n        contextWindow: 1\n`,
+        `version: "2"\nproviders:\n  p:\n    baseUrl: "https://x/v1"\n    apiKey: "sk-1"\n    apiType: "openai-completions"\n    models:\n      - id: "m"\n        name: "M"\n        contextWindow: 1\n`,
       ],
-      ["name", EXAMPLE_SCORE.replace('    name: "DeepSeek Official"\n', "")],
+      [
+        "baseUrl",
+        EXAMPLE_SCORE.replace(
+          '    baseUrl: "https://api.deepseek.com/v1"\n',
+          "",
+        ),
+      ],
       [
         "duplicated",
         EXAMPLE_SCORE.replace(
@@ -458,7 +462,6 @@ describe("end-to-end contract", () => {
   role: hand
 providers:
   deepseek:
-    name: "DeepSeek Official"
     baseUrl: "https://api.deepseek.com/v1"
     apiKey: "sk-fixture-key-87654321"
     api: "openai-completions"
@@ -475,7 +478,6 @@ providers:
         cost: { input: 0.55, output: 2.19, cacheRead: 0.14, cacheWrite: 0 }
         input: ["text"]
   anthropic:
-    name: "Anthropic"
     baseUrl: "https://api.anthropic.com/v1"
     apiKey: "sk-fixture-ant-12345678"
     api: "anthropic-messages"
@@ -518,7 +520,6 @@ providers:
         `version: "1"
 providers:
   pi:
-    name: "Pi"
     baseUrl: "https://x/v1"
     apiKey: "${value}"
     apiType: "openai-completions"

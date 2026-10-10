@@ -29,7 +29,6 @@ function writeScore(text: string): void {
 const VALID_SCORE = `version: "1"
 providers:
   deepseek:
-    name: "DeepSeek Official"
     baseUrl: "https://api.deepseek.com/v1"
     apiKey: "sk-sample-key-1234567890"
     apiType: "openai-completions"

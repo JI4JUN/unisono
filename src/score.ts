@@ -25,7 +25,6 @@ const API_TYPES: Record<string, true> = {
 
 /** Fields the common Score schema defines; anything else is a suspicious key. */
 const PROVIDER_FIELDS: Record<string, true> = {
-  name: true,
   baseUrl: true,
   apiKey: true,
   apiType: true,
@@ -58,7 +57,6 @@ export type Model = {
 };
 
 export type Provider = {
-  name: string;
   baseUrl: string;
   apiKey: string;
   apiType: string;
@@ -141,7 +139,7 @@ function checkProvider(id: string, value: unknown, report: Report): void {
     return;
   }
 
-  for (const field of ["name", "baseUrl", "apiKey", "apiType", "models"]) {
+  for (const field of ["baseUrl", "apiKey", "apiType", "models"]) {
     if (value[field] === undefined || value[field] === null) {
       report.fail(`${label}.${field} is required`);
     } else if (field !== "models" && value[field] === "") {
@@ -153,7 +151,6 @@ function checkProvider(id: string, value: unknown, report: Report): void {
     report.warn(`unknown field '${key}' in ${label} — possible typo`);
   }
 
-  checkStringField(`${label}.name`, value["name"], report);
   checkStringField(`${label}.baseUrl`, value["baseUrl"], report);
   checkStringField(`${label}.apiKey`, value["apiKey"], report);
 
@@ -264,7 +261,6 @@ function toScore(version: unknown, providers: Record<string, unknown>): Score {
     const provider = node as Record<string, unknown>;
     const models = provider["models"] as Array<Record<string, unknown>>;
     built[id] = {
-      name: provider["name"] as string,
       baseUrl: provider["baseUrl"] as string,
       // Already validated, so every reference resolved; expand silently.
       apiKey: expandEnvReferences(provider["apiKey"] as string, () => {}),

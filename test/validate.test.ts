@@ -30,7 +30,6 @@ function writeScore(text: string): void {
 const VALID_SCORE = `version: "1"
 providers:
   deepseek:
-    name: "DeepSeek Official"
     baseUrl: "https://api.deepseek.com/v1"
     apiKey: "\${UNIS_TEST_KEY}"
     apiType: "openai-completions"
@@ -168,7 +167,6 @@ describe("unis validate — structural failures", () => {
 
   test("string fields holding non-strings are rejected", () => {
     const cases: Array<[string, string]> = [
-      ['    name: "DeepSeek Official"\n', "    name: 42\n"],
       [
         '    baseUrl: "https://api.deepseek.com/v1"\n',
         "    baseUrl: [not, a, url]\n",
@@ -205,7 +203,6 @@ describe("unis validate — structural failures", () => {
 
   test("empty required strings are rejected", () => {
     const cases: Array<[string, string]> = [
-      ['    name: "DeepSeek Official"\n', '    name: ""\n'],
       ['    baseUrl: "https://api.deepseek.com/v1"\n', '    baseUrl: ""\n'],
       ['    apiKey: "${UNIS_TEST_KEY}"\n', '    apiKey: ""\n'],
       ['      - id: "deepseek-chat"\n', '      - id: ""\n'],

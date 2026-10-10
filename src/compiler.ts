@@ -46,7 +46,6 @@ export function compileCatalog(score: Score, agent: string): Catalog {
 
   for (const [id, provider] of Object.entries(score.providers)) {
     const standard: Record<string, unknown> = {
-      name: provider.name,
       baseUrl: provider.baseUrl,
       api: provider.apiType,
       apiKey: provider.apiKey,

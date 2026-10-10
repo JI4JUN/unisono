@@ -29,7 +29,6 @@ function writeScore(text: string): void {
 const VALID_SCORE = `version: "1"
 providers:
   deepseek:
-    name: "DeepSeek Official"
     baseUrl: "https://api.deepseek.com/v1"
     apiKey: "sk-sample-key-1234567890"
     apiType: "openai-completions"
@@ -46,7 +45,6 @@ providers:
 /** The compiled Catalog as the Agents read it back, serialization aside. */
 const COMPILED_CATALOG = {
   deepseek: {
-    name: "DeepSeek Official",
     baseUrl: "https://api.deepseek.com/v1",
     api: "openai-completions",
     apiKey: "sk-sample-key-1234567890",
@@ -164,7 +162,6 @@ describe("unis sync — pi takeover", () => {
     writeScore(`version: "1"
 providers:
   deepseek:
-    name: "DeepSeek Official"
     baseUrl: "https://api.deepseek.com/v1"
     apiKey: "sk-abc$def"
     apiType: "openai-completions"
@@ -176,7 +173,6 @@ providers:
         name: "R1"
         contextWindow: 65536
   anthropic:
-    name: "Anthropic"
     baseUrl: "https://api.anthropic.com/v1"
     apiKey: "sk-ant"
     apiType: "anthropic-messages"
@@ -431,7 +427,6 @@ providers:
     writeScore(`version: "1"
 providers:
   p:
-    name: "P"
     baseUrl: "https://x/v1"
     apiKey: "sk-a$b"
     apiType: "openai-completions"
@@ -462,7 +457,6 @@ providers:
     writeScore(`version: "1"
 providers:
   p:
-    name: "P"
     baseUrl: "https://x/v1"
     apiKey: "!sk-key"
     apiType: "openai-completions"
@@ -489,7 +483,6 @@ providers:
     writeScore(`version: "1"
 providers:
   p:
-    name: "P"
     baseUrl: "https://x/v1"
     apiKey: "sk-a$b"
     apiType: "openai-completions"
@@ -596,7 +589,6 @@ describe("unis sync — pi value escaping", () => {
     return `version: "1"
 providers:
   p:
-    name: "P"
     baseUrl: "https://x/v1"
     apiKey: ${JSON.stringify(value)}
     apiType: "openai-completions"
@@ -685,7 +677,6 @@ providers:
     writeScore(`version: "1"
 providers:
   p:
-    name: "P"
     baseUrl: "https://x/v1"
     apiKey: "sk-k"
     apiType: "openai-completions"
@@ -712,7 +703,6 @@ providers:
     writeScore(`version: "1"
 providers:
   "!dollar$id":
-    name: "P"
     baseUrl: "https://x/v1"
     apiKey: "sk-k"
     apiType: "openai-completions"

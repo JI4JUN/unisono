@@ -35,7 +35,6 @@ import type { AgentId } from "./paths";
  * alongside it.
  */
 const CATALOG_PROVIDER_FIELDS: Record<string, true> = {
-  name: true,
   baseUrl: true,
   api: true,
   apiKey: true,
@@ -120,7 +119,6 @@ function toProvider(
   const { standard, override } = splitNode(entry, CATALOG_PROVIDER_FIELDS);
 
   const provider: Record<string, unknown> = {};
-  if ("name" in standard) provider["name"] = standard["name"];
   if ("baseUrl" in standard) provider["baseUrl"] = standard["baseUrl"];
   if ("apiKey" in standard) provider["apiKey"] = standard["apiKey"];
   if ("api" in standard) provider["apiType"] = standard["api"];

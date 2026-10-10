@@ -91,7 +91,6 @@ version: "1"
 
 providers:
   deepseek:
-    name: "DeepSeek Official"
     baseUrl: "https://api.deepseek.com/v1"
     apiKey: "${DEEPSEEK_API_KEY}"   # expanded at compile time; unset → error
     apiType: "openai-completions"

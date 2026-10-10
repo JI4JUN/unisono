@@ -32,7 +32,6 @@ function writeScore(text: string): void {
 const VALID_SCORE = `version: "1"
 providers:
   deepseek:
-    name: "DeepSeek Official"
     baseUrl: "https://api.deepseek.com/v1"
     apiKey: "sk-sample-key-1234567890"
     apiType: "openai-completions"
@@ -49,7 +48,6 @@ providers:
 /** The compiled Catalog as omp would read it back. */
 const COMPILED_CATALOG = {
   deepseek: {
-    name: "DeepSeek Official",
     baseUrl: "https://api.deepseek.com/v1",
     api: "openai-completions",
     apiKey: "sk-sample-key-1234567890",
@@ -250,7 +248,6 @@ describe("unis sync — idempotence", () => {
       '      apiKey: "sk-sample-key-1234567890"',
       '      api: "openai-completions"',
       '      baseUrl: "https://api.deepseek.com/v1"',
-      '      name: "DeepSeek Official"',
     ].join("\n");
     writeFileSync(join(sandbox.ompDir, "models.yml"), reformatted);
     const mtimeBefore = ompMtime();
