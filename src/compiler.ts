@@ -15,6 +15,7 @@
 import type { Catalog } from "./agent";
 import { isObjectNode } from "./guards";
 import { deepMerge } from "./merger";
+import type { AgentId } from "./paths";
 import type { Score } from "./score";
 
 /**
@@ -40,6 +41,10 @@ function overridesFor(
  * (`compat`, `cost`, `input`) the Score never names. Non-optional fields are
  * written only when present, so an absent `maxTokens` stays absent rather
  * than appearing as an explicit null.
+ *
+ * A model whose `agents` list omits the target Agent is skipped, and a
+ * Provider left with no models that way is skipped whole: an Agent's Catalog
+ * is exactly what the Score compiles to, nothing less, nothing more.
  */
 export function compileCatalog(score: Score, agent: string): Catalog {
   const compiled: Catalog = {};
@@ -52,16 +57,23 @@ export function compileCatalog(score: Score, agent: string): Catalog {
     };
     if (provider.headers !== undefined) standard["headers"] = provider.headers;
 
-    const models = provider.models.map((model) => {
-      const entry: Record<string, unknown> = {
-        id: model.id,
-        name: model.name,
-        contextWindow: model.contextWindow,
-      };
-      if (model.maxTokens !== undefined) entry["maxTokens"] = model.maxTokens;
-      if (model.reasoning !== undefined) entry["reasoning"] = model.reasoning;
-      return deepMerge(entry, overridesFor(model, agent));
-    });
+    const models = provider.models
+      .filter(
+        (model) =>
+          model.agents === undefined || model.agents.includes(agent as AgentId),
+      )
+      .map((model) => {
+        const entry: Record<string, unknown> = {
+          id: model.id,
+          name: model.name,
+          contextWindow: model.contextWindow,
+        };
+        if (model.maxTokens !== undefined) entry["maxTokens"] = model.maxTokens;
+        if (model.reasoning !== undefined) entry["reasoning"] = model.reasoning;
+        return deepMerge(entry, overridesFor(model, agent));
+      });
+
+    if (models.length === 0) continue;
 
     compiled[id] = deepMerge(standard, overridesFor(provider, agent));
     compiled[id]["models"] = models;

@@ -1,6 +1,11 @@
 # Dependencies
 node_modules/
 
+# Desktop client
+desktop/ui/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+
 # Environment Variables
 .env
 .env.local

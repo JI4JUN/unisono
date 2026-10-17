@@ -111,6 +111,11 @@ providers:
   missing or empty variable aborts the run with no files written.
 - `overrides.<agent>` holds fields one Agent understands and the other does not. The
   Score's own fields stay Agent-neutral; what cannot be expressed there lives here.
+- `agents` on a model restricts which Agents compile it in. Absent means every Agent:
+  ```yaml
+  - id: "step-5-preview"
+    agents: [omp]      # compiles into omp only; pi will not receive it
+  ```
 - `apiKey` is masked in all output: `sk-ab***12cd`.
 
 ## CLI
@@ -160,6 +165,26 @@ that no longer exists. Unisono detects this and warns — it does not edit them:
 ```
 ⚠ [Pi] settings.json defaultModel references removed provider 'old-proxy'
 ```
+
+## Desktop
+
+The CLI's catalog engine also ships as a small desktop client: a Tauri 2.0 shell
+over a local Bun control server (`desktop/server.ts`). The UI shows the Score's
+model list and per-Agent panels; picking a model for an Agent writes the
+`agents` field into the Score in place (every other byte — comments, ordering,
+quoting — untouched) and a sync pushes the result to the Agent's Catalog.
+
+```bash
+cd desktop
+bun install        # once: Svelte UI + tauri CLI
+bun --cwd ui run build   # build the UI
+bun desktop/server.ts    # control server on http://127.0.0.1:4737
+bunx tauri dev      # or: bunx tauri build, for the .app bundle
+```
+
+The server is a plain HTTP surface, so the same UI works in any browser — Tauri
+adds only the native window. Credentials never leave the machine: the API
+omits every `apiKey`.
 
 ## Development
 

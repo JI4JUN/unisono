@@ -32,6 +32,10 @@ _Avoid_: Managed merge, upsert
 Agent-specific native fields the user writes in the Score for one Agent only, for what the Score's own fields cannot express.
 _Avoid_: Extra, passthrough, patch
 
+**Assignment**:
+The `agents` field on a Score model, declaring which Agents compile that model in. Absent means every Agent; the field only restricts, never adds reach. Written by the desktop client when a user picks models per Agent.
+_Avoid_: routing, distribution, targeting
+
 **Sync**:
 Compiling the Score and writing the result into each Agent's Catalog.
 _Avoid_: Deploy, push, apply

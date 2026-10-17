@@ -209,6 +209,103 @@ describe("unis sync — takeover and preservation", () => {
   });
 });
 
+describe("unis sync — per-Agent assignment", () => {
+  /** One Provider assigned to pi only; one Provider with no restriction. */
+  const ASSIGNED_SCORE = `version: "1"
+providers:
+  stepfun:
+    baseUrl: "https://api.stepfun.com/v1"
+    apiKey: "sk-assigned-key-0000000001"
+    apiType: "openai-completions"
+    models:
+      - id: step-5-preview
+        name: "Step 5 Preview"
+        contextWindow: 1000000
+        agents: [pi]
+  deepseek:
+    baseUrl: "https://api.deepseek.com/v1"
+    apiKey: "sk-assigned-key-0000000002"
+    apiType: "openai-completions"
+    models:
+      - id: deepseek-reasoner
+        name: "DeepSeek R1"
+        contextWindow: 65536
+`;
+
+  /** The `providers` map of pi's config, as parsed. */
+  function piCatalog(): unknown {
+    return readKey(
+      Bun.JSONC.parse(readFileSync(join(sandbox.piDir, "models.json"), "utf8")),
+      "providers",
+    );
+  }
+
+  /** `providers` maps for both Agents, so the sync sees them installed. */
+  function writeInstalledConfigs(): void {
+    writeFileSync(join(sandbox.ompDir, "models.yml"), "providers: {}\n");
+    writeFileSync(join(sandbox.piDir, "models.json"), '{"providers":{}}\n');
+  }
+
+  test("compiles a model only into the Agents its agents field names", () => {
+    writeScore(ASSIGNED_SCORE);
+    writeInstalledConfigs();
+
+    const { stdout, exitCode } = runUnis(sandbox, ["sync", "--yes"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Synced (1 providers, 1 models)");
+    expect(stdout).toContain("Synced (2 providers, 2 models)");
+    // The pi-only Provider is absent from omp's Catalog entirely, while the
+    // unrestricted one arrives as usual.
+    expect(ompCatalog()).toEqual({
+      deepseek: {
+        baseUrl: "https://api.deepseek.com/v1",
+        api: "openai-completions",
+        apiKey: "sk-assigned-key-0000000002",
+        models: [
+          {
+            id: "deepseek-reasoner",
+            name: "DeepSeek R1",
+            contextWindow: 65536,
+          },
+        ],
+      },
+    });
+    // pi holds both Providers.
+    expect(JSON.stringify(piCatalog())).toContain('"step-5-preview"');
+    expect(JSON.stringify(piCatalog())).toContain('"deepseek-reasoner"');
+  });
+
+  test("stays idempotent under assignment", () => {
+    writeScore(ASSIGNED_SCORE);
+    writeInstalledConfigs();
+    runUnis(sandbox, ["sync", "--yes"]);
+
+    const { stdout, exitCode } = runUnis(sandbox, ["sync"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Unchanged");
+  });
+
+  test("rejects an Agent id the Score does not know", () => {
+    writeScore(ASSIGNED_SCORE.replace("agents: [pi]", "agents: [foo]"));
+
+    const { stderr, exitCode } = runUnis(sandbox, ["validate"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("not one of omp, pi");
+  });
+
+  test("rejects an empty agents list", () => {
+    writeScore(ASSIGNED_SCORE.replace("agents: [pi]", "agents: []"));
+
+    const { stderr, exitCode } = runUnis(sandbox, ["validate"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("must not be empty");
+  });
+});
+
 describe("unis sync — idempotence", () => {
   test("writes nothing when the Catalog already equals the compiled result", () => {
     writeScore(VALID_SCORE);

@@ -12,7 +12,7 @@
  */
 
 import { isListNode, isObjectNode } from "./guards";
-import { scorePath } from "./paths";
+import { AGENT_IDS, type AgentId, scorePath } from "./paths";
 
 /** The one accepted Score version. */
 const SCORE_VERSION = "1";
@@ -39,6 +39,7 @@ const MODEL_FIELDS: Record<string, true> = {
   contextWindow: true,
   maxTokens: true,
   reasoning: true,
+  agents: true,
   overrides: true,
 };
 
@@ -47,12 +48,22 @@ const TOP_LEVEL_FIELDS: Record<string, true> = {
   providers: true,
 };
 
+/** Agent ids as a set, for `agents` membership checks. */
+const AGENT_IDS_LOOKUP: Record<string, true> = Object.fromEntries(
+  AGENT_IDS.map((id) => [id, true]),
+);
+
 export type Model = {
   id: string;
   name: string;
   contextWindow: number;
   maxTokens?: number;
   reasoning?: boolean;
+  /**
+   * The Agents that compile this model in. Absent means every Agent — the
+   * field exists only to restrict, never to add reach.
+   */
+  agents?: AgentId[];
   overrides?: Record<string, unknown>;
 };
 
@@ -248,6 +259,30 @@ function checkModel(
   for (const field of ["contextWindow", "maxTokens"]) {
     checkPositiveInteger(`${at}.${field}`, entry[field], report);
   }
+
+  const agents = entry["agents"];
+  if (agents !== undefined && agents !== null) {
+    if (!isListNode(agents)) {
+      report.fail(`${at}.agents must be a list of Agent ids`);
+    } else if (agents.length === 0) {
+      report.fail(
+        `${at}.agents must not be empty — omit the field for every Agent`,
+      );
+    } else {
+      const seenAgents: Record<string, true> = {};
+      for (const agent of agents) {
+        if (typeof agent !== "string" || !(agent in AGENT_IDS_LOOKUP)) {
+          report.fail(
+            `${at}.agents entry ${JSON.stringify(agent)} is not one of ${AGENT_IDS.join(", ")}`,
+          );
+        } else if (agent in seenAgents) {
+          report.fail(`${at}.agents lists '${agent}' more than once`);
+        } else {
+          seenAgents[agent] = true;
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -280,6 +315,13 @@ function toScore(version: unknown, providers: Record<string, unknown>): Score {
           : {}),
         ...(model["reasoning"] !== undefined
           ? { reasoning: model["reasoning"] as boolean }
+          : {}),
+        ...(model["agents"] !== undefined
+          ? {
+              agents: (model["agents"] as string[]).filter(
+                (agent): agent is AgentId => agent in AGENT_IDS_LOOKUP,
+              ),
+            }
           : {}),
         ...(isObjectNode(model["overrides"])
           ? { overrides: model["overrides"] }
